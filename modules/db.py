@@ -1,0 +1,78 @@
+import hashlib, secrets, requests, streamlit as st
+from datetime import datetime, timedelta
+from modules.config import SUPABASE_URL, SUPABASE_KEY, ROLE_LABELS, BRANCH_FULL, AREA_MAP, ALL_BRANCHES
+
+def _h():
+    return {"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}","Content-Type":"application/json","Prefer":"return=representation"}
+
+def _get(table, params={}):
+    r=requests.get(f"{SUPABASE_URL}/rest/v1/{table}",headers=_h(),params=params,timeout=10)
+    if r.status_code==401: raise Exception("Supabase 401 — periksa SUPABASE_SERVICE_KEY di Secrets")
+    r.raise_for_status(); return r.json()
+
+def _post(table, data):
+    r=requests.post(f"{SUPABASE_URL}/rest/v1/{table}",headers=_h(),json=data,timeout=10)
+    r.raise_for_status(); res=r.json(); return res[0] if isinstance(res,list) and res else res
+
+def _patch(table, filters, data):
+    params={k:f"eq.{v}" for k,v in filters.items()}
+    r=requests.patch(f"{SUPABASE_URL}/rest/v1/{table}",headers=_h(),params=params,json=data,timeout=10)
+    r.raise_for_status(); return r.json()
+
+def _delete(table, filters):
+    params={k:f"eq.{v}" for k,v in filters.items()}
+    requests.delete(f"{SUPABASE_URL}/rest/v1/{table}",headers=_h(),params=params,timeout=10)
+
+def hash_pw(pw): return hashlib.sha256(f"kla_salt_{pw}_kla2025".encode()).hexdigest()
+
+def login(username, password):
+    rows=_get("users",{"username":f"eq.{username.lower().strip()}","is_active":"is.true","select":"*"})
+    if not rows: return False, None
+    user=rows[0]
+    if hash_pw(password)!=user["password_hash"]: return False, None
+    token=secrets.token_urlsafe(32)
+    _post("sessions",{"token":token,"user_id":user["id"],"expires_at":(datetime.utcnow()+timedelta(hours=8)).isoformat()+"Z"})
+    try: _patch("users",{"id":user["id"]},{"last_login":datetime.utcnow().isoformat()+"Z"})
+    except: pass
+    return True, user
+
+def get_all_users():
+    users=_get("users",{"order":"role.asc,full_name.asc","select":"*"})
+    for u in users:
+        u["branch_name"]=BRANCH_FULL.get(u.get("branch",""),""); u["role_label"]=ROLE_LABELS.get(u.get("role",""),"")
+    return users
+
+def create_user(username,password,full_name,role,branch=None,area=None):
+    try:
+        _post("users",{"username":username.lower(),"password_hash":hash_pw(password),"full_name":full_name,"role":role,"branch":branch,"area":area,"is_active":True,"created_at":datetime.utcnow().isoformat()+"Z"})
+        return True,"User berhasil dibuat."
+    except Exception as e:
+        msg=str(e); return False,"Username sudah digunakan." if "unique" in msg.lower() else msg
+
+def update_user(uid,full_name,role,branch=None,area=None,is_active=True,new_pw=None):
+    try:
+        data={"full_name":full_name,"role":role,"branch":branch,"area":area,"is_active":is_active}
+        if new_pw: data["password_hash"]=hash_pw(new_pw)
+        _patch("users",{"id":uid},data); return True,"User diupdate."
+    except Exception as e: return False,str(e)
+
+def deactivate_user(uid):
+    try: _patch("users",{"id":uid},{"is_active":False}); return True,"User dinonaktifkan."
+    except Exception as e: return False,str(e)
+
+def save_analysis_meta(filename,uploaded_by,sku_count):
+    try: _delete("analysis_store",{"id":"1"})
+    except: pass
+    _post("analysis_store",{"id":1,"filename":filename,"uploaded_by":uploaded_by,"sku_count":sku_count,"uploaded_at":datetime.utcnow().isoformat()+"Z"})
+
+def get_analysis_meta():
+    try: rows=_get("analysis_store",{"id":"eq.1","select":"*"}); return rows[0] if rows else None
+    except: return None
+
+def save_build_history(user_id,branch,build_name,build_type,budget,total_price,ai_notes):
+    import json
+    _post("build_history",{"user_id":user_id,"branch":branch,"build_name":build_name,"build_type":build_type,"budget":budget,"total_price":total_price,"ai_notes":ai_notes[:500],"created_at":datetime.utcnow().isoformat()+"Z"})
+
+def log_action(user_id,username,action,detail=""):
+    try: _post("audit_log",{"user_id":user_id,"username":username,"action":action,"detail":detail,"created_at":datetime.utcnow().isoformat()+"Z"})
+    except: pass
