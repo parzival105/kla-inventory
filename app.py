@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+
 import io
 
 st.set_page_config(
@@ -150,26 +150,18 @@ def page_dashboard():
     with col1:
         st.subheader("Distribusi Kategori")
         if "kategori" in df.columns:
-            cc=df["kategori"].value_counts().reset_index(); cc.columns=["Kategori","Jumlah"]
-            colors={"Very Fast":"#059669","Fast":"#7c3aed","Slow":"#d97706","Dead Stock":"#dc2626"}
-            fig=px.pie(cc,names="Kategori",values="Jumlah",hole=0.5,color="Kategori",color_discrete_map=colors)
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font_color="#c4b5d4",height=300,margin=dict(t=0,b=0))
-            st.plotly_chart(fig,use_container_width=True)
+            cc=df["kategori"].value_counts()
+            st.bar_chart(cc, color="#a855f7")
     with col2:
         st.subheader("Nilai per Kategori")
         if "kategori" in df.columns and "nilai_inventory" in df.columns:
-            cv=df.groupby("kategori")["nilai_inventory"].sum().reset_index(); cv.columns=["Kategori","Nilai"]
-            colors={"Very Fast":"#059669","Fast":"#7c3aed","Slow":"#d97706","Dead Stock":"#dc2626"}
-            fig=px.bar(cv,x="Nilai",y="Kategori",orientation="h",color="Kategori",color_discrete_map=colors)
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font_color="#c4b5d4",showlegend=False,height=300,margin=dict(t=0,b=0),xaxis=dict(tickformat=".2s"))
-            st.plotly_chart(fig,use_container_width=True)
+            cv=df.groupby("kategori")["nilai_inventory"].sum()
+            st.bar_chart(cv, color="#7c3aed")
     bs=an.get("branch_summary",pd.DataFrame())
     if not bs.empty:
         st.subheader("🏢 Health Score Cabang")
-        fig=px.bar(bs.sort_values("health_score"),x="health_score",y="branch",orientation="h",color="health_score",color_continuous_scale=[[0,"#dc2626"],[0.4,"#d97706"],[0.6,"#7c3aed"],[1,"#059669"]],range_color=[0,100],text="health_score")
-        fig.update_traces(texttemplate="%{text:.0f}",textposition="outside")
-        fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font_color="#c4b5d4",height=max(300,len(bs)*32),coloraxis_showscale=False,margin=dict(t=0,b=0))
-        st.plotly_chart(fig,use_container_width=True)
+        hs=bs.set_index("branch")["health_score"].sort_values()
+        st.bar_chart(hs, color="#7c3aed")
     dp=rev.get("dead_stock_pct",0)
     if dp>30: st.error(f"🔴 **KRITIS** — Dead stock {dp:.1f}% ({fmt(rev.get('dead_stock_value',0))}). Lakukan clearance segera.")
     elif dp>15: st.warning(f"🟡 **PERHATIAN** — Dead stock {dp:.1f}%. Pertimbangkan bundling/promo.")
@@ -228,12 +220,8 @@ def page_branch():
     with c3: st.metric("📊 Rata-rata",f"{bs['health_score'].mean():.0f}/100",f"{len(bs)} cabang")
     with c4: st.metric("🚨 Critical",f"{bs['critical_count'].sum():,}","Stok < 30 hari",delta_color="inverse")
     st.divider()
-    fig=px.bar(bs.sort_values("health_score"),x="health_score",y="branch",orientation="h",
-        color="health_score",color_continuous_scale=[[0,"#dc2626"],[0.4,"#d97706"],[0.6,"#7c3aed"],[1,"#059669"]],
-        range_color=[0,100],text="health_score")
-    fig.update_traces(texttemplate="%{text:.0f}",textposition="outside")
-    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font_color="#c4b5d4",height=max(300,len(bs)*34),coloraxis_showscale=False,margin=dict(t=0,b=0))
-    st.plotly_chart(fig,use_container_width=True)
+    hs=bs.set_index("branch")["health_score"].sort_values()
+    st.bar_chart(hs, color="#7c3aed")
     disp=bs[["rank","branch","branch_name","area","health_score","total_sku","inventory_value","dead_stock_value","critical_count"]].copy()
     disp["inventory_value"]=disp["inventory_value"].apply(fmt)
     disp["dead_stock_value"]=disp["dead_stock_value"].apply(fmt)
