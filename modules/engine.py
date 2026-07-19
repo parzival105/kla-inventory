@@ -27,10 +27,13 @@ def detect_branches(columns):
     sc,sl={},{}
     for col in columns:
         n=normalize(col)
+        # Sales columns: SMG.1, YK.1, etc (pandas auto-renames duplicate headers)
+        is_sales_suffix = col.endswith(".1") or col.endswith(".2")
         for br in sorted(ALL_BRANCHES,key=len,reverse=True):
             bl=br.lower()
-            if re.search(rf"(?<![a-z0-9]){bl}(?![a-z0-9])",n):
-                is_sales=any(k in n for k in ["terjual","sold","sales","jual"]) or col.endswith(".1")
+            col_base = col.replace(".1","").replace(".2","").strip()
+            if re.search(rf"(?<![a-z0-9]){bl}(?![a-z0-9])",normalize(col_base)):
+                is_sales=any(k in n for k in ["terjual","sold","sales","jual"]) or is_sales_suffix
                 if is_sales: sl.setdefault(br,col)
                 else: sc.setdefault(br,col)
                 break
@@ -40,7 +43,7 @@ EXCL_KW=["laptop","notebook","pc","aio","tablet","display","bonus","cabutan","se
 
 def analyze(file_bytes, filename="stock.xlsx"):
     from datetime import datetime
-    raw=pd.read_excel(io.BytesIO(file_bytes),engine="openpyxl")
+    raw=pd.read_excel(io.BytesIO(file_bytes),engine="openpyxl",header=1)
     col_map=detect_col_map(list(raw.columns))
     sc,sl=detect_branches(list(raw.columns))
     if "hpp" not in col_map or "total_stok" not in col_map:
