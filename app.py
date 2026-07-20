@@ -128,7 +128,7 @@ def page_login():
                 else:
                     try:
                         from modules.db import login
-                        ok,user=login(username,password)
+                        ok,token,user=login(username,password)
                         if ok:
                             st.session_state.user=user
                             st.session_state._token=token
@@ -184,10 +184,12 @@ def render_sidebar():
 # UPLOAD
 # ══════════════════════════════════════════════════════════════════════════════
 def upload_section():
-    if not is_admin(): return
     an=get_an()
+    if not is_admin():
+        if an: st.info(f"📂 Data aktif: **{an.get('filename','')}** — {len(an.get('df',pd.DataFrame())):,} SKU | Diupload oleh Admin")
+        return
     with st.expander("📂 Upload / Update File Stok Excel", expanded=not bool(an)):
-        if an: st.success(f"✅ Data aktif: **{an.get('filename','')}** — {an.get('df',pd.DataFrame()).__len__():,} SKU")
+        if an: st.success(f"✅ Data aktif: **{an.get('filename','')}** — {len(an.get('df',pd.DataFrame())):,} SKU")
         uploaded=st.file_uploader("Pilih file .xlsx",type=["xlsx","xls"],label_visibility="collapsed")
         if uploaded:
             with st.spinner("Menganalisa file stok... Mohon tunggu (~10-30 detik)"):
@@ -818,6 +820,17 @@ def main():
     if not get_user():
         if not restore_session():
             page_login(); return
+    # Load analysis dari Supabase untuk semua role jika belum ada di session
+    if get_user() and not st.session_state.get("analysis"):
+        try:
+            from modules.storage import load_analysis, load_components
+            an = load_analysis()
+            if an:
+                st.session_state.analysis = an
+            comps = load_components()
+            if comps:
+                st.session_state.components = comps
+        except: pass
     render_sidebar()
     p=st.session_state.page
     if p=="dashboard": page_dashboard()
