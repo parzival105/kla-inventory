@@ -36,6 +36,32 @@ def login(username, password):
     except: pass
     return True, user
 
+def validate_token(token):
+    if not token: return None
+    from datetime import datetime
+    try:
+        rows = _get("sessions", {"token": f"eq.{token}", "select": "*"})
+        if not rows: return None
+        session = rows[0]
+        exp = session["expires_at"].replace("Z","").replace("+00:00","")
+        if datetime.fromisoformat(exp) < datetime.utcnow():
+            try: _delete("sessions", {"token": token})
+            except: pass
+            return None
+        users = _get("users", {"id": f"eq.{session['user_id']}", "is_active": "is.true", "select": "*"})
+        if not users: return None
+        user = users[0]
+        from modules.config import ROLE_LABELS, BRANCH_FULL
+        user["role_label"] = ROLE_LABELS.get(user.get("role",""), "")
+        user["branch_name"] = BRANCH_FULL.get(user.get("branch",""), "")
+        return user
+    except: return None
+
+def logout(token):
+    if not token: return
+    try: _delete("sessions", {"token": token})
+    except: pass
+
 def get_all_users():
     users=_get("users",{"order":"role.asc,full_name.asc","select":"*"})
     for u in users:

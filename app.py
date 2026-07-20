@@ -61,6 +61,8 @@ def page_login():
                         ok,user=login(username,password)
                         if ok:
                             st.session_state.user=user
+                            st.session_state._token=token
+                            save_session_cookie(token)
                             try:
                                 from modules.storage import load_analysis,load_components
                                 an=load_analysis()
@@ -99,7 +101,12 @@ def render_sidebar():
         an=get_an()
         if an: st.caption(f"📂 {an.get('filename','')}")
         if st.button("🚪 Logout",use_container_width=True):
-            for k in ["user","analysis","components","page"]:
+            clear_session_cookie()
+            try:
+                from modules.db import logout
+                logout(st.session_state.get("_token",""))
+            except: pass
+            for k in ["user","analysis","components","page","_token"]:
                 if k in st.session_state: del st.session_state[k]
             st.rerun()
 
@@ -625,7 +632,8 @@ def page_users():
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
     if not get_user():
-        page_login(); return
+        if not restore_session():
+            page_login(); return
     render_sidebar()
     p=st.session_state.page
     if p=="dashboard": page_dashboard()
