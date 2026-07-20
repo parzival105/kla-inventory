@@ -33,6 +33,51 @@ def fmt(v):
 
 def go(page): st.session_state.page=page; st.rerun()
 
+# ── Session Persistence ───────────────────────────────────────────────────────
+def save_session_cookie(token):
+    st.markdown(f'<script>document.cookie="kla_token={token};path=/;max-age=28800;SameSite=Lax";</script>', unsafe_allow_html=True)
+
+def clear_session_cookie():
+    st.markdown('<script>document.cookie="kla_token=;path=/;max-age=0";</script>', unsafe_allow_html=True)
+
+def get_token_from_cookie():
+    try:
+        return st.context.cookies.get("kla_token") or None
+    except:
+        return None
+
+def restore_session():
+    # User sudah ada di session
+    if st.session_state.get("user"):
+        if not st.session_state.get("analysis"):
+            try:
+                from modules.storage import load_analysis, load_components
+                an = load_analysis()
+                if an: st.session_state.analysis = an
+                comps = load_components()
+                if comps: st.session_state.components = comps
+            except: pass
+        return True
+    # Coba restore dari cookie
+    token = get_token_from_cookie()
+    if not token: return False
+    try:
+        from modules.db import validate_token
+        user = validate_token(token)
+        if user:
+            st.session_state.user = user
+            st.session_state._token = token
+            try:
+                from modules.storage import load_analysis, load_components
+                an = load_analysis()
+                if an: st.session_state.analysis = an
+                comps = load_components()
+                if comps: st.session_state.components = comps
+            except: pass
+            return True
+    except: pass
+    return False
+
 # ══════════════════════════════════════════════════════════════════════════════
 # LOGIN
 # ══════════════════════════════════════════════════════════════════════════════
