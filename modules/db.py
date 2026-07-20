@@ -102,3 +102,29 @@ def save_build_history(user_id,branch,build_name,build_type,budget,total_price,a
 def log_action(user_id,username,action,detail=""):
     try: _post("audit_log",{"user_id":user_id,"username":username,"action":action,"detail":detail,"created_at":datetime.utcnow().isoformat()+"Z"})
     except: pass
+
+# ── Branch Management ─────────────────────────────────────────────────────────
+def get_branches(active_only=True):
+    params = {"order": "area.asc,code.asc", "select": "*"}
+    if active_only: params["is_active"] = "is.true"
+    return _get("branches", params)
+
+def add_branch(code, name, area):
+    try:
+        _post("branches", {"code": code.upper().strip(), "name": name.strip(), "area": area, "is_active": True})
+        return True, f"Cabang {code.upper()} berhasil ditambahkan."
+    except Exception as e:
+        msg = str(e)
+        return False, "Kode cabang sudah ada." if "unique" in msg.lower() else msg
+
+def update_branch(code, name, area, is_active):
+    try:
+        _patch("branches", {"code": code}, {"name": name.strip(), "area": area, "is_active": is_active})
+        return True, "Cabang diupdate."
+    except Exception as e: return False, str(e)
+
+def deactivate_branch(code):
+    try:
+        _patch("branches", {"code": code}, {"is_active": False})
+        return True, f"Cabang {code} dinonaktifkan."
+    except Exception as e: return False, str(e)

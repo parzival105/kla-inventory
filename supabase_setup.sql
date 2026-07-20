@@ -43,3 +43,36 @@ DROP POLICY IF EXISTS "sa" ON analysis_store; CREATE POLICY "sa" ON analysis_sto
 DROP POLICY IF EXISTS "sa" ON build_history; CREATE POLICY "sa" ON build_history FOR ALL USING (true);
 
 SELECT (SELECT COUNT(*) FROM users) AS total_users, 'Setup complete!' AS status;
+
+-- Branch Management Table (tambahkan ini di SQL Editor Supabase)
+CREATE TABLE IF NOT EXISTS branches (
+  id        BIGSERIAL PRIMARY KEY,
+  code      TEXT UNIQUE NOT NULL,
+  name      TEXT NOT NULL,
+  area      TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sa" ON branches;
+CREATE POLICY "sa" ON branches FOR ALL USING (true);
+
+-- Insert default 13 cabang KLA
+INSERT INTO branches (code, name, area, is_active) VALUES
+  ('SMG','Semarang','Area 2 — Jawa Tengah Timur',true),
+  ('YK','Yogyakarta','Area 2 — Jawa Tengah Timur',true),
+  ('SLA','Slawi','Area 1 — Jawa Tengah Barat',true),
+  ('TGL','Tegal','Area 1 — Jawa Tengah Barat',true),
+  ('PKL','Pekalongan','Area 1 — Jawa Tengah Barat',true),
+  ('CRB','Cirebon','Area 1 — Jawa Tengah Barat',true),
+  ('KDR','Kediri','Area 3 — Jawa Timur',true),
+  ('NGL','Ngaliyan','Area 2 — Jawa Tengah Timur',true),
+  ('SKH','Sukoharjo','Area 2 — Jawa Tengah Timur',true),
+  ('MSBY','Surabaya Merr','Area 3 — Jawa Timur',true),
+  ('MJK','Mojokerto','Area 3 — Jawa Timur',true),
+  ('BSBY','Surabaya Babatan','Area 3 — Jawa Timur',true),
+  ('PWT','Purwokerto','Area 1 — Jawa Tengah Barat',true)
+ON CONFLICT (code) DO NOTHING;
+
+SELECT COUNT(*) AS total_branches FROM branches;

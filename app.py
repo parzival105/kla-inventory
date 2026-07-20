@@ -33,21 +33,45 @@ def fmt(v):
 
 def go(page): st.session_state.page=page; st.rerun()
 
-# ── Session Persistence ───────────────────────────────────────────────────────
+# ── Session Persistence via localStorage ─────────────────────────────────────
 def save_session_cookie(token):
-    st.markdown(f'<script>document.cookie="kla_token={token};path=/;max-age=28800;SameSite=Lax";</script>', unsafe_allow_html=True)
+    # Simpan ke localStorage via JS — persist lewat reload
+    st.markdown(f"""<script>
+    try{{localStorage.setItem('kla_token','{token}');}}catch(e){{}}
+    </script>""", unsafe_allow_html=True)
 
 def clear_session_cookie():
-    st.markdown('<script>document.cookie="kla_token=;path=/;max-age=0";</script>', unsafe_allow_html=True)
+    st.markdown("""<script>
+    try{{localStorage.removeItem('kla_token');}}catch(e){{}}
+    </script>""", unsafe_allow_html=True)
 
-def get_token_from_cookie():
+def get_token_from_storage():
+    # Baca dari query param yang di-inject JS saat load
     try:
-        return st.context.cookies.get("kla_token") or None
+        return st.query_params.get("_t", None)
     except:
         return None
 
+def inject_token_reader():
+    # JS: baca localStorage dan inject ke URL sebagai query param
+    st.markdown("""<script>
+    (function(){
+        try{
+            var t=localStorage.getItem('kla_token');
+            if(t){
+                var url=new URL(window.location.href);
+                if(url.searchParams.get('_t')!==t){
+                    url.searchParams.set('_t',t);
+                    window.history.replaceState({},'',url.toString());
+                    window.location.reload();
+                }
+            }
+        }catch(e){}
+    })();
+    </script>""", unsafe_allow_html=True)
+
 def restore_session():
-    # User sudah ada di session
+    # User sudah ada di session — pastikan analysis juga ada
     if st.session_state.get("user"):
         if not st.session_state.get("analysis"):
             try:
@@ -58,8 +82,8 @@ def restore_session():
                 if comps: st.session_state.components = comps
             except: pass
         return True
-    # Coba restore dari cookie
-    token = get_token_from_cookie()
+    # Coba restore dari query param _t (diisi JS dari localStorage)
+    token = get_token_from_storage()
     if not token: return False
     try:
         from modules.db import validate_token
@@ -82,6 +106,7 @@ def restore_session():
 # LOGIN
 # ══════════════════════════════════════════════════════════════════════════════
 def page_login():
+    inject_token_reader()
     st.markdown("""
 <style>
 .login-logo{background:linear-gradient(135deg,#431061,#6d28a0);border-radius:16px;padding:14px 32px;font-size:32px;font-weight:900;color:white;letter-spacing:.12em;display:inline-block}
@@ -136,7 +161,7 @@ def render_sidebar():
 <div style="color:#a855f7;font-size:12px">{user.get("role_label",user["role"])}</div>
 {"<div style='color:#4a3060;font-size:11px'>📍 "+user.get("branch_name","")+"</div>" if user.get("branch_name") else ""}
 </div>""", unsafe_allow_html=True)
-        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_admin())]
+        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_admin()),("🏪 Kelola Cabang","branches",is_admin())]
         cur=st.session_state.page
         for label,key,show in menus:
             if not show: continue
@@ -673,6 +698,120 @@ def page_users():
                     else: st.error(msg)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BRANCH MANAGEMENT
+# ══════════════════════════════════════════════════════════════════════════════
+def page_branches():
+    st.title("🏪 Kelola Cabang")
+    from modules.db import get_branches, add_branch, update_branch, deactivate_branch
+    from modules.config import AREA_MAP as _AREA_MAP
+
+    # Reload dari Supabase langsung
+    try:
+        from modules.db import _get
+        rows = _get("branches", {"order":"area.asc,code.asc","select":"*"})
+    except Exception as e:
+        st.error(f"Error: {e}"); return
+
+    active = [r for r in rows if r.get("is_active")]
+    inactive = [r for r in rows if not r.get("is_active")]
+
+    # Ambil daftar area dari yang sudah ada + default
+    all_areas = sorted(set(
+        list(_AREA_MAP.keys()) +
+        [r["area"] for r in rows]
+    ))
+
+    c1,c2,c3 = st.columns(3)
+    with c1: st.metric("Total Cabang Aktif", len(active))
+    with c2: st.metric("Total Area", len(set(r["area"] for r in active)))
+    with c3: st.metric("Cabang Nonaktif", len(inactive))
+
+    st.divider()
+    tab1, tab2, tab3 = st.tabs(["📋 Daftar Cabang", "➕ Tambah Cabang", "✏️ Edit / Nonaktifkan"])
+
+    with tab1:
+        # Group by area
+        area_groups = {}
+        for r in active:
+            area_groups.setdefault(r["area"],[]).append(r)
+        for area, branches in sorted(area_groups.items()):
+            st.subheader(area)
+            for b in branches:
+                col1,col2 = st.columns([4,1])
+                with col1:
+                    st.markdown(f"**{b['code']}** — {b['name']}")
+                with col2:
+                    st.caption("✅ Aktif")
+            st.divider()
+        if inactive:
+            with st.expander(f"⛔ Cabang Nonaktif ({len(inactive)})"):
+                for b in inactive:
+                    st.markdown(f"~~**{b['code']}** — {b['name']}~~")
+
+    with tab2:
+        with st.form("add_branch"):
+            st.subheader("Tambah Cabang Baru")
+            c1,c2 = st.columns(2)
+            with c1:
+                code = st.text_input("Kode Cabang *", placeholder="Contoh: SOLO, TSM, BDG").upper()
+                name = st.text_input("Nama Cabang *", placeholder="Contoh: Solo, Tasikmalaya, Bandung")
+            with c2:
+                area_choice = st.selectbox("Area *", all_areas + ["+ Buat Area Baru"])
+                if area_choice == "+ Buat Area Baru":
+                    area = st.text_input("Nama Area Baru *", placeholder="Contoh: Area 4 — Jawa Barat")
+                else:
+                    area = area_choice
+            st.caption("⚠️ Setelah tambah cabang, upload ulang file stok agar cabang baru terdeteksi.")
+            if st.form_submit_button("➕ Tambah Cabang", type="primary"):
+                if not code or not name or not area:
+                    st.error("Lengkapi semua field")
+                elif len(code) < 2 or len(code) > 6:
+                    st.error("Kode cabang harus 2-6 karakter")
+                else:
+                    ok, msg = add_branch(code, name, area)
+                    if ok:
+                        st.success(msg)
+                        # Reload branch config di session
+                        from modules import config as cfg
+                        _bc = cfg.get_branch_config()
+                        cfg.ALL_BRANCHES = _bc[0]; cfg.BRANCH_FULL = _bc[1]
+                        cfg.AREA_MAP = _bc[2]; cfg.BRANCH_TO_AREA = _bc[3]
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    with tab3:
+        if not rows:
+            st.info("Belum ada cabang."); return
+        sel = st.selectbox("Pilih Cabang", rows, format_func=lambda r: f"{r['code']} — {r['name']} ({'Aktif' if r.get('is_active') else 'Nonaktif'})")
+        if sel:
+            with st.form("edit_branch"):
+                c1,c2 = st.columns(2)
+                with c1:
+                    new_name = st.text_input("Nama Cabang", value=sel["name"])
+                    new_area = st.selectbox("Area", all_areas, index=all_areas.index(sel["area"]) if sel["area"] in all_areas else 0)
+                with c2:
+                    is_active = st.checkbox("Cabang Aktif", value=sel.get("is_active", True))
+                    st.caption(f"Kode: **{sel['code']}** (tidak bisa diubah)")
+                col1,col2 = st.columns(2)
+                with col1:
+                    if st.form_submit_button("💾 Simpan", type="primary"):
+                        ok,msg = update_branch(sel["code"], new_name, new_area, is_active)
+                        if ok:
+                            st.success(msg)
+                            from modules import config as cfg
+                            _bc = cfg.get_branch_config()
+                            cfg.ALL_BRANCHES = _bc[0]; cfg.BRANCH_FULL = _bc[1]
+                            cfg.AREA_MAP = _bc[2]; cfg.BRANCH_TO_AREA = _bc[3]
+                            st.rerun()
+                        else: st.error(msg)
+                with col2:
+                    if sel.get("is_active") and st.form_submit_button("⛔ Nonaktifkan", type="secondary"):
+                        ok,msg = deactivate_branch(sel["code"])
+                        if ok: st.success(msg); st.rerun()
+                        else: st.error(msg)
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ROUTER
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
@@ -693,6 +832,7 @@ def main():
     elif p=="pcbuilder": page_pcbuilder()
     elif p=="export": page_export()
     elif p=="users": page_users()
+    elif p=="branches": page_branches()
     else: page_dashboard()
 
 main()
