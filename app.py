@@ -546,18 +546,20 @@ def page_pcbuilder():
             st.caption(status)
             for c in result["components"]:
                 bs=c.get("branch_stock",{})
+                nama=c.get("nama_barang",c.get("nama",""))
+                harga=c.get("selling_price",c.get("h1",0))
                 stok_str=" · ".join([f"{BRANCH_FULL.get(br,br)}: {qty}" for br,qty in sorted(bs.items(),key=lambda x:-x[1])[:5]]) if bs else "⚠️ Kosong"
                 with st.container():
                     st.markdown(f"""
 <div style="background:#130a1e;border:1px solid #2d1a45;border-radius:8px;padding:10px 14px;margin-bottom:6px">
 <div style="color:#4a3060;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">{c.get("kategori_label",c.get("kategori",""))}</div>
 <div style="display:flex;justify-content:space-between;align-items:center">
-<div style="color:#e2e8f0;font-size:13px;font-weight:600">{c.get("nama_barang","")}</div>
-<div style="color:#a855f7;font-weight:700;font-family:monospace">{fmt(c.get("h1",0))}</div>
+<div style="color:#e2e8f0;font-size:13px;font-weight:600">{nama}</div>
+<div style="color:#a855f7;font-weight:700;font-family:monospace">{fmt(harga)}</div>
 </div>
 <div style="color:#4a3060;font-size:11px;margin-top:4px">{stok_str}</div>
 </div>""",unsafe_allow_html=True)
-            st.markdown(f"**TOTAL: <span style='color:#34d399;font-size:20px'>{fmt(result['total_price'])}</span>**",unsafe_allow_html=True)
+            st.markdown(f"**TOTAL: <span style='color:#34d399;font-size:20px'>{fmt(result.get('total_price',0))}</span>**",unsafe_allow_html=True)
             st.caption(f"Budget: {fmt(result['budget'])} · Sisa: {fmt(result['sisa_budget'])}")
             for n in result.get("compat_notes",[]): st.success(n)
             for w in result.get("compat_warnings",[]): st.warning(w)
@@ -577,7 +579,7 @@ def page_pcbuilder():
                 from modules.config import ANTHROPIC_KEY
                 if ANTHROPIC_KEY:
                     import anthropic, json
-                    safe=[{"tipe":c.get("kategori_label",""),"nama":c.get("nama_barang",""),"harga":fmt(c.get("h1",0))} for c in result["components"]]
+                    safe=[{"tipe":c.get("kategori_label",""),"nama":c.get("nama_barang",c.get("nama","")),"harga":fmt(c.get("selling_price",c.get("h1",0)))} for c in result["components"]]
                     prompt=f"Kamu konsultan PC di KLA Computer. Jelaskan build ini untuk customer dalam 3 paragraf Bahasa Indonesia.\nBUILD: {bt} | Total: {fmt(result['total_price'])}\nKOMPONEN: {json.dumps(safe,ensure_ascii=False)}\nFokus pada manfaat, jangan sebut HPP/margin."
                     client=anthropic.Anthropic(api_key=ANTHROPIC_KEY)
                     with st.spinner("Generating AI explanation..."):
@@ -592,7 +594,7 @@ def page_pcbuilder():
                     label="💰 Budget Hemat" if alt["total_price"]<result["total_price"] else "⬆️ Upgrade Option"
                     with st.expander(f"{label} — {fmt(alt['total_price'])}"):
                         for c in alt["components"]:
-                            st.text(f"  {c.get('kategori_label','')}: {c.get('nama_barang','')} — {fmt(c.get('h1',0))}")
+                            st.text(f"  {c.get('kategori_label','')}: {c.get('nama_barang',c.get('nama',''))} — {fmt(c.get('selling_price',c.get('h1',0)))}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # EXPORT

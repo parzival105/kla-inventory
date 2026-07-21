@@ -28,7 +28,7 @@ PSU_MIN={"rtx 4090":850,"rtx 4080":750,"rtx 4070":650,"rtx 4060":550,"rtx 3080":
 def _n(v): return re.sub(r"[^a-z0-9]+", " ", str(v).lower()).strip()
 
 def check_compat(comps):
-    names={c["kategori"]:c["nama"] for c in comps}
+    names={c["kategori"]:c.get("nama",c.get("nama_barang","")) for c in comps}
     cpu=names.get("PROCESSOR","").lower(); mb=names.get("MOTHERBOARD","").lower()
     ram=names.get("RAM LONGDIMM",names.get("RAM SODIMM","")).lower()
     gpu=names.get("GRAPHIC CARD","").lower(); psu=names.get("POWER SUPPLY","").lower()
@@ -61,8 +61,18 @@ def build_pc(components, build_type, budget, preferred_brand=None):
         if comp: selected[cat]=comp; remaining-=float(comp["h1"])
         else: warnings.append(f"Tidak ada {PC_CATEGORIES.get(cat,cat)} di budget ini")
     if not selected: return None
-    comps=list(selected.values()); notes,warns=check_compat(comps)
-    total_hpp=sum(float(c.get("hpp",0)) for c in comps); total_price=sum(float(c["h1"]) for c in comps)
+    # Pastikan semua komponen punya kategori_label
+    comps=[]
+    for cat,comp in selected.items():
+        c=dict(comp)
+        c.setdefault("kategori",cat)
+        c.setdefault("kategori_label",PC_CATEGORIES.get(cat,cat))
+        c.setdefault("selling_price",float(c.get("h1",0)))
+        c.setdefault("nama_barang",c.get("nama",""))
+        comps.append(c)
+    notes,warns=check_compat(comps)
+    total_hpp=sum(float(c.get("hpp",0)) for c in comps)
+    total_price=sum(float(c.get("selling_price",c.get("h1",0))) for c in comps)
     margin=(total_price-total_hpp)/total_price*100 if total_price>0 else 0
     return {"build_type":build_type,"budget":budget,"total_hpp":total_hpp,"total_price":total_price,"margin_persen":round(margin,2),"is_within_budget":total_price<=budget*1.05,"components":comps,"compat_notes":notes,"compat_warnings":warns,"build_warnings":warnings,"sisa_budget":max(0,budget-total_price)}
 
@@ -76,8 +86,4 @@ def _select(components, cat, target, remaining, brand=None):
     return max(within,key=lambda c:float(c["h1"])) if within else min(avail,key=lambda c:float(c["h1"]))
 
 def build_alternatives(components, build_type, budget):
-    alts=[]
-    for factor in [0.85,1.15]:
-        alt=build_pc(components,build_type,budget*factor)
-        if alt: alts.append(alt)
-    return alts
+    return [a for f in [0.85,1.15] if (a:=build_pc(components,build_type,budget*f))]
