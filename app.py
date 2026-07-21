@@ -128,11 +128,14 @@ def page_login():
                 else:
                     try:
                         from modules.db import login
-                        ok,token,user=login(username,password)
+                        login_result=login(username,password)
+                        if len(login_result)==3: ok,token,user=login_result
+                        else: ok,user=login_result; token=None
                         if ok:
                             st.session_state.user=user
-                            st.session_state._token=token
-                            save_session_cookie(token)
+                            if token:
+                                st.session_state._token=token
+                                save_session_cookie(token)
                             try:
                                 from modules.storage import load_analysis,load_components
                                 an=load_analysis()

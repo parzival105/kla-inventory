@@ -23,14 +23,15 @@ _DEFAULT_BRANCHES = [
 ]
 
 def get_branch_config():
-    """Ambil konfigurasi cabang dari Supabase, fallback ke default."""
+    """Ambil konfigurasi cabang dari Supabase, fallback ke default jika table belum ada."""
     try:
         import requests
         h = {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"}
         r = requests.get(f"{SUPABASE_URL}/rest/v1/branches?is_active=is.true&order=area.asc,code.asc&select=*", headers=h, timeout=5)
-        if r.status_code == 200 and r.json():
+        # 200 = OK, 404 = table belum ada → fallback ke default
+        if r.status_code == 200:
             rows = r.json()
-            branches = rows
+            branches = rows if rows else _DEFAULT_BRANCHES
         else:
             branches = _DEFAULT_BRANCHES
     except:
