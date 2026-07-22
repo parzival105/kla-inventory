@@ -20,7 +20,17 @@ def download(path):
 def save_analysis(analysis):
     def _j(df):
         if df is None or (hasattr(df,"empty") and df.empty): return "[]"
-        try: return df.to_json(orient="records")
+        try:
+            # Convert dict columns to JSON-safe format
+            df2 = df.copy()
+            for col in df2.columns:
+                if df2[col].dtype == object:
+                    try:
+                        sample = df2[col].dropna().iloc[0] if len(df2[col].dropna()) > 0 else None
+                        if isinstance(sample, dict):
+                            df2[col] = df2[col].apply(lambda x: x if isinstance(x,dict) else {})
+                    except: pass
+            return df2.to_json(orient="records")
         except: return "[]"
     payload={"df":_j(analysis["df"]),"branch_long":_j(analysis.get("branch_long")),"branch_summary":_j(analysis.get("branch_summary")),"transfer":_j(analysis.get("transfer")),"dead_stock":_j(analysis.get("dead_stock")),"stock_columns":analysis.get("stock_columns",{}),"sales_columns":analysis.get("sales_columns",{}),"revenue":analysis.get("revenue",{}),"recommendations":analysis.get("recommendations",[]),"uploaded_at":analysis.get("uploaded_at",""),"filename":analysis.get("filename","")}
     upload(json.dumps(payload,ensure_ascii=False,default=str).encode("utf-8"),"analysis/current.json","application/json")

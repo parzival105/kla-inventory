@@ -164,7 +164,7 @@ def render_sidebar():
 <div style="color:#a855f7;font-size:12px">{user.get("role_label",user["role"])}</div>
 {"<div style='color:#4a3060;font-size:11px'>📍 "+user.get("branch_name","")+"</div>" if user.get("branch_name") else ""}
 </div>""", unsafe_allow_html=True)
-        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_admin()),("🏪 Kelola Cabang","branches",is_admin())]
+        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_leader()),("🏪 Kelola Cabang","branches",is_admin())]
         cur=st.session_state.page
         for label,key,show in menus:
             if not show: continue
@@ -485,13 +485,16 @@ def page_sales():
         results=results.nlargest(8,"_score")
         st.success("Ditemukan " + str(len(results)) + " produk relevan")
         for i,(_,row) in enumerate(results.iterrows()):
-            # Stok per cabang
-            bs={}
-            for br,col in sc.items():
-                try:
-                    qty=int(float(row.get(col,0) or 0))
-                    if qty>0: bs[br]=qty
-                except: pass
+            # Stok per cabang - ambil dari kolom branch_stock yang sudah disiapkan engine
+            bs = row.get("branch_stock", {})
+            if not isinstance(bs, dict): bs = {}
+            # Fallback: coba dari sc jika branch_stock kosong
+            if not bs:
+                for br,col in sc.items():
+                    try:
+                        qty=int(float(row.get(col,0) or 0))
+                        if qty>0: bs[br]=qty
+                    except: pass
             h1=float(row.get("h1",0) or 0)
             mp=row.get("margin_persen")
             margin_str="Margin " + str(round(float(mp),1)) + "%" if mp is not None and is_leader() else ""
@@ -656,32 +659,64 @@ def page_export():
 # USER MANAGEMENT
 # ══════════════════════════════════════════════════════════════════════════════
 def page_users():
-    st.title("👥 User Management")
+    st.title("Manajemen User")
     from modules.db import get_all_users,create_user,update_user,deactivate_user
     from modules.config import ROLE_LABELS,BRANCH_FULL,AREA_MAP,ALL_BRANCHES
-    users=get_all_users()
-    active=[u for u in users if u.get("is_active")]
+    me=get_user(); my_role=me["role"]
+    all_users=get_all_users()
+    active=[u for u in all_users if u.get("is_active")]
+
+    # Filter berdasarkan role
+    if my_role=="area_manager":
+        my_area=me.get("area","")
+        area_branches=AREA_MAP.get(my_area,[])
+        visible=[u for u in active if u.get("branch") in area_branches or u.get("area")==my_area]
+        allowed_roles=["store_leader","sales"]
+    elif my_role=="store_leader":
+        my_branch=me.get("branch","")
+        visible=[u for u in active if u.get("branch")==my_branch and u["role"]=="sales"]
+        allowed_roles=["sales"]
+    else:
+        visible=active
+        allowed_roles=list(ROLE_LABELS.keys())
+
     c1,c2,c3,c4=st.columns(4)
-    with c1: st.metric("Total Aktif",len(active))
-    with c2: st.metric("Admin",sum(1 for u in active if u["role"]=="super_admin"))
-    with c3: st.metric("Store Leader",sum(1 for u in active if u["role"]=="store_leader"))
-    with c4: st.metric("Sales",sum(1 for u in active if u["role"]=="sales"))
+    with c1: st.metric("Total User",len(visible))
+    with c2: st.metric("Store Leader",sum(1 for u in visible if u["role"]=="store_leader"))
+    with c3: st.metric("Sales",sum(1 for u in visible if u["role"]=="sales"))
+    with c4: st.metric("Admin",sum(1 for u in visible if u["role"]=="super_admin"))
     st.divider()
-    tab1,tab2,tab3=st.tabs(["📋 Daftar User","➕ Buat User Baru","✏️ Edit User"])
-    with tab1:
-        for u in active:
-            col1,col2=st.columns([4,1])
-            with col1:
-                st.markdown(f"**{u['full_name']}** (@{u['username']}) — *{u.get('role_label',u['role'])}*")
-                if u.get("branch_name"): st.caption(f"📍 {u['branch_name']}")
-            with col2:
-                if u["username"]!="admin":
-                    if st.button("Nonaktifkan",key=f"del_{u['id']}",type="secondary"):
+
+    tab_labels=["Daftar User","Buat User Baru"]
+    if my_role in ["super_admin","area_manager"]: tab_labels.append("Edit User")
+    tabs=st.tabs(tab_labels)
+
+    # TAB 1: Daftar
+    with tabs[0]:
+        if not visible: st.info("Belum ada user di cabang/area ini."); return
+        for u in visible:
+            c1,c2=st.columns([4,1])
+            with c1:
+                st.markdown("**"+u["full_name"]+"** (@"+u["username"]+") - *"+u.get("role_label",u["role"])+"*")
+                info=[]
+                if u.get("branch_name"): info.append("Cabang: "+u["branch_name"])
+                if u.get("area"): info.append("Area: "+u["area"])
+                if info: st.caption(" | ".join(info))
+            with c2:
+                can_del=(
+                    (my_role=="super_admin" and u["username"]!="admin") or
+                    (my_role=="area_manager" and u["role"] in ["store_leader","sales"]) or
+                    (my_role=="store_leader" and u["role"]=="sales" and u.get("branch")==me.get("branch"))
+                )
+                if can_del:
+                    if st.button("Nonaktifkan",key="del_"+str(u["id"]),type="secondary"):
                         ok,msg=deactivate_user(u["id"])
                         if ok: st.success(msg); st.rerun()
                         else: st.error(msg)
-    with tab2:
-        with st.form("create_user"):
+
+    # TAB 2: Buat User
+    with tabs[1]:
+        with st.form("buat_user"):
             c1,c2=st.columns(2)
             with c1:
                 fn=st.text_input("Nama Lengkap *")
@@ -689,41 +724,69 @@ def page_users():
             with c2:
                 pw=st.text_input("Password *",type="password")
                 pw2=st.text_input("Konfirmasi Password *",type="password")
-            role=st.selectbox("Role",list(ROLE_LABELS.keys()),format_func=lambda k:ROLE_LABELS[k])
+
+            role_opts={k:v for k,v in ROLE_LABELS.items() if k in allowed_roles}
+            sel_role=st.selectbox("Role",list(role_opts.keys()),format_func=lambda k:role_opts[k])
+
             branch=None; area=None
-            if role in ["store_leader","sales"]:
-                branch=st.selectbox("Cabang *",ALL_BRANCHES,format_func=lambda b:f"{b} — {BRANCH_FULL.get(b,b)}")
-            elif role=="area_manager":
+            if sel_role in ["store_leader","sales"]:
+                if my_role=="store_leader":
+                    branch=me.get("branch","")
+                    st.info("Cabang: **"+BRANCH_FULL.get(branch,branch)+"** (otomatis sesuai cabang Anda)")
+                elif my_role=="area_manager":
+                    my_area=me.get("area","")
+                    area_branches=AREA_MAP.get(my_area,[])
+                    if area_branches:
+                        branch=st.selectbox("Cabang *",area_branches,format_func=lambda b:b+" - "+BRANCH_FULL.get(b,b))
+                    else:
+                        st.warning("Tidak ada cabang di area Anda")
+                else:
+                    branch=st.selectbox("Cabang *",ALL_BRANCHES,format_func=lambda b:b+" - "+BRANCH_FULL.get(b,b))
+            elif sel_role=="area_manager":
                 area=st.selectbox("Area *",list(AREA_MAP.keys()))
+
             if st.form_submit_button("Buat User",type="primary"):
                 if not fn or not un or not pw: st.error("Lengkapi semua field wajib")
                 elif pw!=pw2: st.error("Password tidak cocok")
                 elif len(pw)<6: st.error("Password minimal 6 karakter")
+                elif sel_role not in allowed_roles: st.error("Tidak punya izin membuat role ini")
                 else:
-                    ok,msg=create_user(un,pw,fn,role,branch,area)
-                    if ok: st.success(msg); st.rerun()
-                    else: st.error(msg)
-    with tab3:
-        opts=[u for u in active if u["username"]!="admin"]
-        if not opts: st.info("Tidak ada user yang bisa diedit."); return
-        sel=st.selectbox("Pilih User",opts,format_func=lambda u:f"{u['full_name']} (@{u['username']})")
-        if sel:
-            with st.form("edit_user"):
-                fn=st.text_input("Nama Lengkap",value=sel["full_name"])
-                role=st.selectbox("Role",list(ROLE_LABELS.keys()),index=list(ROLE_LABELS.keys()).index(sel["role"]) if sel["role"] in ROLE_LABELS else 0,format_func=lambda k:ROLE_LABELS[k])
-                branch=None; area=None
-                if role in ["store_leader","sales"]:
-                    branch=st.selectbox("Cabang",ALL_BRANCHES,index=ALL_BRANCHES.index(sel.get("branch",ALL_BRANCHES[0])) if sel.get("branch") in ALL_BRANCHES else 0,format_func=lambda b:f"{b} — {BRANCH_FULL.get(b,b)}")
-                elif role=="area_manager":
-                    areas=list(AREA_MAP.keys())
-                    area=st.selectbox("Area",areas,index=areas.index(sel.get("area",areas[0])) if sel.get("area") in areas else 0)
-                is_active=st.checkbox("User Aktif",value=True)
-                new_pw=st.text_input("Password Baru (kosongkan jika tidak diubah)",type="password")
-                if st.form_submit_button("Simpan Perubahan",type="primary"):
-                    ok,msg=update_user(sel["id"],fn,role,branch,area,is_active,new_pw or None)
+                    ok,msg=create_user(un,pw,fn,sel_role,branch,area)
                     if ok: st.success(msg); st.rerun()
                     else: st.error(msg)
 
+    # TAB 3: Edit User (admin & area manager)
+    if my_role in ["super_admin","area_manager"] and len(tabs)>2:
+        with tabs[2]:
+            editable=[u for u in visible if u["username"]!="admin"]
+            if not editable: st.info("Tidak ada user yang bisa diedit."); return
+            sel=st.selectbox("Pilih User",editable,format_func=lambda u:u["full_name"]+" (@"+u["username"]+")")
+            if sel:
+                with st.form("edit_user"):
+                    fn=st.text_input("Nama Lengkap",value=sel["full_name"])
+                    edit_opts={k:v for k,v in ROLE_LABELS.items() if k in allowed_roles}
+                    cur_idx=list(edit_opts.keys()).index(sel["role"]) if sel["role"] in edit_opts else 0
+                    edit_role=st.selectbox("Role",list(edit_opts.keys()),index=cur_idx,format_func=lambda k:edit_opts[k])
+                    branch=None; area=None
+                    if edit_role in ["store_leader","sales"]:
+                        if my_role=="area_manager":
+                            my_area=me.get("area","")
+                            area_branches=AREA_MAP.get(my_area,[])
+                            idx=area_branches.index(sel.get("branch","")) if sel.get("branch") in area_branches else 0
+                            branch=st.selectbox("Cabang",area_branches,index=idx,format_func=lambda b:b+" - "+BRANCH_FULL.get(b,b))
+                        else:
+                            idx=ALL_BRANCHES.index(sel.get("branch","")) if sel.get("branch") in ALL_BRANCHES else 0
+                            branch=st.selectbox("Cabang",ALL_BRANCHES,index=idx,format_func=lambda b:b+" - "+BRANCH_FULL.get(b,b))
+                    elif edit_role=="area_manager":
+                        areas=list(AREA_MAP.keys())
+                        idx=areas.index(sel.get("area","")) if sel.get("area") in areas else 0
+                        area=st.selectbox("Area",areas,index=idx)
+                    is_active=st.checkbox("User Aktif",value=True)
+                    new_pw=st.text_input("Password Baru (kosongkan jika tidak diubah)",type="password")
+                    if st.form_submit_button("Simpan",type="primary"):
+                        ok,msg=update_user(sel["id"],fn,edit_role,branch,area,is_active,new_pw or None)
+                        if ok: st.success(msg); st.rerun()
+                        else: st.error(msg)
 # ══════════════════════════════════════════════════════════════════════════════
 # BRANCH MANAGEMENT
 # ══════════════════════════════════════════════════════════════════════════════
