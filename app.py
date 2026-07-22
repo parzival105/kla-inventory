@@ -484,6 +484,34 @@ def page_sales():
         results=results.copy(); results["_score"]=results.apply(_score,axis=1)
         results=results.nlargest(8,"_score")
         st.success("Ditemukan " + str(len(results)) + " produk relevan")
+
+        # Filter & Sort
+        sort_col1, sort_col2 = st.columns([2,2])
+        with sort_col1:
+            sort_by = st.selectbox("Urutkan berdasarkan", [
+                "Relevansi (Default)",
+                "Harga: Termurah dulu",
+                "Harga: Termahal dulu",
+                "Terlaris (Runrate tertinggi)",
+                "Stok Terbanyak",
+                "Stok Tersedikit",
+            ], key="sales_sort")
+        with sort_col2:
+            max_hasil = st.selectbox("Tampilkan", [8, 16, 24, 50], key="sales_max")
+
+        if sort_by == "Harga: Termurah dulu":
+            results = results.sort_values("h1", ascending=True)
+        elif sort_by == "Harga: Termahal dulu":
+            results = results.sort_values("h1", ascending=False)
+        elif sort_by == "Terlaris (Runrate tertinggi)":
+            results = results.sort_values("runrate_bulanan", ascending=False)
+        elif sort_by == "Stok Terbanyak":
+            results = results.sort_values("total_stok", ascending=False)
+        elif sort_by == "Stok Tersedikit":
+            results = results.sort_values("total_stok", ascending=True)
+        # Relevansi: sudah diurutkan by _score sebelumnya
+
+        results = results.head(max_hasil)
         for i,(_,row) in enumerate(results.iterrows()):
             # Stok per cabang
             bs = row.get("branch_stock", {})
