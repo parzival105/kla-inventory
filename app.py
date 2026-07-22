@@ -449,20 +449,21 @@ def page_sales():
             if st.button(s,key=f"sc_{i}",use_container_width=True):
                 st.session_state.sales_query=s
     query=st.text_input("💬 Apa yang dicari customer?",value=st.session_state.get("sales_query",""),placeholder='Contoh: "Monitor 24 inch IPS budget 2 juta"',key="sales_input_box")
-    if st.button("🔍 Cari Rekomendasi",type="primary") or st.session_state.get("sales_query"):
+    if st.button("Cari",type="primary",key="sales_btn") or st.session_state.get("sales_query"):
+        q2=st.session_state.get("sales_query","") or query
         st.session_state.sales_query=""
-        if not query: st.warning("Masukkan kata kunci pencarian"); return
-        import re
-        def _tok(t): return [x for x in re.sub(r"[^a-z0-9\s]"," ",str(t).lower()).split() if len(x)>=2]
-        terms=_tok(query)
-        def _budget(t):
+        if not q2: st.warning("Masukkan kata kunci pencarian"); return
+        import re as _re
+        def _tok(t): return [x for x in _re.sub(r"[^a-z0-9 ]"," ",str(t).lower()).split() if len(x)>=2]
+        terms=_tok(q2)
+        def _bgt(t):
             t=t.lower().replace(".","").replace(",","")
-            m=re.search(r"(\d+(?:\.\d+)?)\s*(juta|jt)",t)
+            m=_re.search(r"(\d+(?:\.\d+)?)\s*(juta|jt)",t)
             if m: return float(m.group(1))*1e6
-            m=re.search(r"(\d+(?:\.\d+)?)\s*(ribu|rb)",t)
+            m=_re.search(r"(\d+(?:\.\d+)?)\s*(ribu|rb)",t)
             if m: return float(m.group(1))*1e3
             return None
-        budget_hint=_budget(query)
+        budget_hint=_bgt(q2)
         if terms:
             def _match(row):
                 s=" ".join(str(row.get(c,"")) for c in ["nama_barang","segment","brand","kategori"]).lower()
@@ -476,46 +477,65 @@ def page_sales():
         def _score(row):
             name=str(row.get("nama_barang","")).lower()
             ns=sum(2.0 for t in terms if t in name)
-            rr=(row.get("runrate_bulanan",0) or 0)/50; st_=1.0 if (row.get("total_stok",0) or 0)>0 else 0.0
+            rr=(row.get("runrate_bulanan",0) or 0)/50
+            st_=1.0 if (row.get("total_stok",0) or 0)>0 else 0.0
             mg=(row.get("margin_persen",0) or 0)/40
             return ns*0.50+rr*0.25+st_*0.15+mg*0.10
         results=results.copy(); results["_score"]=results.apply(_score,axis=1)
         results=results.nlargest(8,"_score")
-        st.success(f"Ditemukan **{len(results)}** produk relevan")
+        st.success("Ditemukan " + str(len(results)) + " produk relevan")
         for i,(_,row) in enumerate(results.iterrows()):
+            # Stok per cabang
             bs={}
             for br,col in sc.items():
-                if col in df.columns:
-                    qty=int(float(df.loc[_,col]) if _ in df.index and col in df.columns else 0)
+                try:
+                    qty=int(float(row.get(col,0) or 0))
                     if qty>0: bs[br]=qty
-            if not bs:
-                for br in ["SMG","YK","SLA","TGL","PKL","CRB","KDR","NGL","SKH","MSBY","MJK","BSBY","PWT"]:
-                    if br in row.index:
-                        qty=int(float(row.get(br,0) or 0))
-                        if qty>0: bs[br]=qty
-            badge="🥇 Teratas" if i==0 else ""
+                except: pass
             h1=float(row.get("h1",0) or 0)
             mp=row.get("margin_persen")
-            margin_str=f"Margin {mp:.1f}%" if mp is not None and is_leader() else ""
-            stock_badges=" ".join([f"**{BRANCH_FULL.get(br,br)}**: {qty}" for br,qty in sorted(bs.items(),key=lambda x:-x[1])[:6]])
-            with st.container():
-                st.markdown(f"""
-<div style="background:#180d28;border:1px solid {'#431061' if i==0 else '#2d1a45'};border-radius:10px;padding:14px 16px;margin-bottom:8px">
-<div style="display:flex;justify-content:space-between;align-items:flex-start">
-<div>
-{'<span style="background:#431061;color:#d1b3ff;border-radius:10px;padding:2px 8px;font-size:11px;font-weight:700">'+badge+'</span><br>' if badge else ''}
-<div style="color:#e2e8f0;font-weight:600;font-size:15px;margin:4px 0 2px">{row.get("nama_barang","")}</div>
-<div style="color:#6b4f8a;font-size:12px">{row.get("kategori","")} · {row.get("brand","")}</div>
-<div style="color:#4a3060;font-size:11px;margin-top:6px">{stock_badges if stock_badges else "⚠️ Stok kosong semua cabang"}</div>
-</div>
-<div style="text-align:right">
-<div style="color:#a855f7;font-size:20px;font-weight:700;font-family:monospace">{fmt(h1)}</div>
-{"<div style='color:#059669;font-size:12px;font-weight:600'>"+margin_str+"</div>" if margin_str else ""}
-<div style="color:#4a3060;font-size:11px">Stok: {int(row.get("total_stok",0))} · {row.get("runrate_bulanan",0):.1f}/bln</div>
-</div>
-</div>
-</div>""",unsafe_allow_html=True)
-
+            margin_str="Margin " + str(round(float(mp),1)) + "%" if mp is not None and is_leader() else ""
+            total_stok=int(row.get("total_stok",0) or 0)
+            rr=float(row.get("runrate_bulanan",0) or 0)
+            nama=str(row.get("nama_barang",""))
+            kat=str(row.get("kategori",""))
+            brand=str(row.get("brand",""))
+            badge="Teratas" if i==0 else str(i+1)
+            badge_bg="#431061" if i==0 else "#1a0530"
+            badge_fg="#d1b3ff" if i==0 else "#6b4f8a"
+            border="#431061" if i==0 else "#2d1a45"
+            # Branch badges
+            branch_parts=[]
+            if bs:
+                for br,qty in sorted(bs.items(),key=lambda x:-x[1]):
+                    bg="#052e16" if qty>=3 else "#1a0d00"
+                    fg="#4ade80" if qty>=3 else "#fb923c"
+                    bd="#166534" if qty>=3 else "#92400e"
+                    nm=BRANCH_FULL.get(br,br)
+                    branch_parts.append(
+                        '<span style="background:'+bg+';color:'+fg+';border:1px solid '+bd+
+                        ';border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;margin:2px">'+
+                        nm+': '+str(qty)+'</span>')
+                branch_html="".join(branch_parts)
+            else:
+                branch_html='<span style="color:#dc2626;font-size:11px">Stok kosong di semua cabang</span>'
+            margin_html='<div style="color:#4ade80;font-size:11px;font-weight:600;margin-top:2px">'+margin_str+'</div>' if margin_str else ""
+            html=(
+                '<div style="background:#180d28;border:1px solid '+border+';border-left:3px solid '+border+';border-radius:10px;padding:14px 16px;margin-bottom:8px">'
+                '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">'
+                '<div style="flex:1;min-width:0">'
+                '<span style="background:'+badge_bg+';color:'+badge_fg+';border-radius:8px;padding:2px 8px;font-size:10px;font-weight:700">'+badge+'</span>'
+                '<div style="color:#e2e8f0;font-weight:600;font-size:14px;margin:6px 0 2px">'+nama+'</div>'
+                '<div style="color:#6b4f8a;font-size:11px;margin-bottom:8px">'+kat+' | '+brand+'</div>'
+                '<div style="font-size:10px;font-weight:600;color:#9d7fba;margin-bottom:4px">Stok per Cabang:</div>'
+                '<div style="display:flex;flex-wrap:wrap;gap:3px">'+branch_html+'</div>'
+                '</div>'
+                '<div style="text-align:right;flex-shrink:0">'
+                '<div style="color:#a855f7;font-size:20px;font-weight:700;font-family:monospace">'+fmt(h1)+'</div>'
+                +margin_html+
+                '<div style="color:#4a3060;font-size:11px;margin-top:4px">Total: '+str(total_stok)+' | '+str(round(rr,1))+'/bln</div>'
+                '</div></div></div>')
+            st.markdown(html,unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # PC BUILDER
 # ══════════════════════════════════════════════════════════════════════════════
