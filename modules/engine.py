@@ -116,7 +116,7 @@ def analyze(file_bytes, filename="stock.xlsx"):
     bs = _health(bs) if not bs.empty else bs
     tf = _transfers_fast(bl) if not bl.empty else pd.DataFrame()
 
-    # Simpan stok per cabang sebagai dict sebelum drop
+    # Simpan stok per cabang sebagai dict
     def _make_branch_stock(row):
         d = {}
         for br, col in sc.items():
@@ -128,9 +128,10 @@ def analyze(file_bytes, filename="stock.xlsx"):
         return d
     df["branch_stock"] = df.apply(_make_branch_stock, axis=1)
 
-    # Drop raw branch cols from main df
-    drop_cols = list(set(sc.values()) | set(sl.values()))
-    df = df.drop(columns=[c for c in drop_cols if c in df.columns])
+    # Drop hanya kolom sales (.1) bukan kolom stok cabang
+    # Kolom stok cabang tetap ada untuk referensi
+    sl_cols = list(set(sl.values()))
+    df = df.drop(columns=[c for c in sl_cols if c in df.columns])
 
     dead = _dead(df)
     rev  = _revenue(df, dead, tf)

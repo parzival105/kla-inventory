@@ -46,7 +46,18 @@ def load_analysis():
             if not raw or raw=="[]": return pd.DataFrame()
             try: return pd.DataFrame(json.loads(raw))
             except: return pd.DataFrame()
-        return {"df":_df("df"),"branch_long":_df("branch_long"),"branch_summary":_df("branch_summary"),"transfer":_df("transfer"),"dead_stock":_df("dead_stock"),"stock_columns":p.get("stock_columns",{}),"sales_columns":p.get("sales_columns",{}),"revenue":p.get("revenue",{}),"recommendations":p.get("recommendations",[]),"uploaded_at":p.get("uploaded_at",""),"filename":p.get("filename","")}
+        df_main = _df("df")
+        # Pastikan branch_stock di-parse dari string jadi dict
+        if "branch_stock" in df_main.columns:
+            import json as _json
+            def _parse_bs(v):
+                if isinstance(v, dict): return v
+                if isinstance(v, str):
+                    try: return _json.loads(v)
+                    except: return {}
+                return {}
+            df_main["branch_stock"] = df_main["branch_stock"].apply(_parse_bs)
+        return {"df":df_main,"branch_long":_df("branch_long"),"branch_summary":_df("branch_summary"),"transfer":_df("transfer"),"dead_stock":_df("dead_stock"),"stock_columns":p.get("stock_columns",{}),"sales_columns":p.get("sales_columns",{}),"revenue":p.get("revenue",{}),"recommendations":p.get("recommendations",[]),"uploaded_at":p.get("uploaded_at",""),"filename":p.get("filename","")}
     except: return None
 
 def save_components(comps):

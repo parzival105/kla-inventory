@@ -485,14 +485,26 @@ def page_sales():
         results=results.nlargest(8,"_score")
         st.success("Ditemukan " + str(len(results)) + " produk relevan")
         for i,(_,row) in enumerate(results.iterrows()):
-            # Stok per cabang - ambil dari kolom branch_stock yang sudah disiapkan engine
+            # Stok per cabang
             bs = row.get("branch_stock", {})
+            # Parse jika masih string (dari JSON storage)
+            if isinstance(bs, str):
+                import json as _j
+                try: bs = _j.loads(bs)
+                except: bs = {}
             if not isinstance(bs, dict): bs = {}
-            # Fallback: coba dari sc jika branch_stock kosong
+            # Fallback ke sc kolom jika branch_stock kosong (data lama)
             if not bs:
                 for br,col in sc.items():
                     try:
                         qty=int(float(row.get(col,0) or 0))
+                        if qty>0: bs[br]=qty
+                    except: pass
+            # Fallback ke nama kolom cabang langsung di row
+            if not bs:
+                for br in ["SMG","YK","SLA","TGL","PKL","CRB","KDR","NGL","SKH","MSBY","MJK","BSBY","PWT"]:
+                    try:
+                        qty=int(float(row.get(br,0) or 0))
                         if qty>0: bs[br]=qty
                     except: pass
             h1=float(row.get("h1",0) or 0)
