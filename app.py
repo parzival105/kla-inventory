@@ -483,9 +483,19 @@ def page_sales():
             return ns*0.50+rr*0.25+st_*0.15+mg*0.10
         results=results.copy(); results["_score"]=results.apply(_score,axis=1)
         results=results.nlargest(8,"_score")
+        # Simpan hasil ke session state
+        st.session_state["sales_results"] = results.to_dict(orient="records")
+        st.session_state["sales_sc"] = sc
+
+    # Tampilkan hasil dari session state (tetap ada saat filter diklik)
+    if st.session_state.get("sales_results"):
+        import pandas as _pd
+        results_raw = st.session_state["sales_results"]
+        sc = st.session_state.get("sales_sc", sc)
+        results = _pd.DataFrame(results_raw)
+
         st.success("Ditemukan " + str(len(results)) + " produk relevan")
 
-        # Filter & Sort
         sort_col1, sort_col2 = st.columns([2,2])
         with sort_col1:
             sort_by = st.selectbox("Urutkan berdasarkan", [
@@ -509,7 +519,6 @@ def page_sales():
             results = results.sort_values("total_stok", ascending=False)
         elif sort_by == "Stok Tersedikit":
             results = results.sort_values("total_stok", ascending=True)
-        # Relevansi: sudah diurutkan by _score sebelumnya
 
         results = results.head(max_hasil)
         for i,(_,row) in enumerate(results.iterrows()):
@@ -585,86 +594,307 @@ def page_sales():
 def page_pcbuilder():
     st.title("🖥️ PC Builder")
     from modules.config import BUILD_TYPES, PC_CATEGORIES, BRANCH_FULL
-    from modules.pc_builder import build_pc, build_alternatives
-    comps=st.session_state.get("components",[])
+    from modules.pc_builder import build_pc, build_alternatives, _find_cpu_rule, _select_compatible_mb
+
+    comps = st.session_state.get("components", [])
     if not comps:
         st.warning("Komponen belum tersedia. Upload file stok terlebih dahulu.")
         return
-    st.info(f"✅ {len(comps)} komponen tersedia dari stok KLA")
-    col1,col2,col3=st.columns(3)
-    with col1: bt=st.selectbox("Tipe Build",BUILD_TYPES)
-    with col2:
-        budget_labels=["Entry 3-5jt","Mid-Low 5-8jt","Mid 8-12jt","Mid-High 12-18jt","High 18-25jt","Premium 25-35jt"]
-        budget_ranges=[(3e6,5e6),(5e6,8e6),(8e6,12e6),(12e6,18e6),(18e6,25e6),(25e6,35e6)]
-        tier=st.selectbox("Range Budget",range(len(budget_labels)),format_func=lambda i:budget_labels[i])
-        lo,hi=budget_ranges[tier]; budget=st.slider("Budget",int(lo),int(hi),int((lo+hi)/2),500000,format="Rp %d")
-        st.caption(f"Budget: **{fmt(budget)}**")
-    with col3: brand=st.selectbox("Preferensi CPU",["Tidak Ada","Intel","AMD"])
-    if st.button("🔧 Generate Rekomendasi Build",type="primary",use_container_width=True):
-        with st.spinner("Memilih komponen terbaik dari stok KLA..."):
-            result=build_pc(comps,bt,budget,None if brand=="Tidak Ada" else brand)
-        if not result:
-            st.error("Tidak dapat membuat build. Budget terlalu rendah atau stok tidak tersedia."); return
-        col1,col2=st.columns([1.2,1])
+
+    st.info("✅ " + str(len(comps)) + " komponen tersedia dari stok KLA")
+
+    # ── Mode selector ─────────────────────────────────────────────────────────
+    mode = st.radio("Mode", ["⚡ Auto Generate", "🔧 Custom Builder"], horizontal=True, key="pc_mode")
+    st.divider()
+
+    def _fmt(v):
+        try:
+            v=float(v); s="-" if v<0 else ""; a=abs(v)
+            if a>=1e6: return s+"Rp "+f"{a/1e6:.1f}"+"Jt"
+            if a>=1e3: return s+"Rp "+f"{a/1e3:.0f}"+"Rb"
+            return s+"Rp "+f"{a:,.0f}"
+        except: return "Rp 0"
+
+    def _by_cat(cat, brand_filter=None, socket_filter=None, ram_type_filter=None, ram_cap_filter=None):
+        cat_up = cat.upper()
+        res = [c for c in comps if c.get("kategori","").upper()==cat_up and float(c.get("h1",0))>0]
+        if brand_filter and brand_filter!="Semua":
+            res = [c for c in res if brand_filter.lower() in c.get("nama_barang","").lower() or brand_filter.lower() in c.get("brand","").lower()]
+        if socket_filter:
+            valid_chips=[ch.lower() for ch in socket_filter]
+            res = [c for c in res if any(ch in c.get("nama_barang","").lower() for ch in valid_chips)]
+        if ram_type_filter and ram_type_filter!="Semua":
+            res = [c for c in res if ram_type_filter.lower() in c.get("nama_barang","").lower()]
+        if ram_cap_filter and ram_cap_filter!="Semua":
+            res = [c for c in res if ram_cap_filter.lower().replace(" ","") in c.get("nama_barang","").lower().replace(" ","")]
+        return sorted(res, key=lambda c: float(c.get("h1",0)))
+
+    def _comp_card(c, idx=0):
+        if not c: return
+        bs = c.get("branch_stock", {})
+        if isinstance(bs, str):
+            import json; bs = json.loads(bs) if bs else {}
+        nama = c.get("nama_barang","")
+        harga = float(c.get("h1",0))
+        branch_parts = []
+        for br,qty in sorted(bs.items(), key=lambda x:-x[1])[:8]:
+            bg="#052e16" if qty>=3 else "#1a0d00"
+            fg="#4ade80" if qty>=3 else "#fb923c"
+            bd="#166534" if qty>=3 else "#92400e"
+            nm=BRANCH_FULL.get(br,br)
+            branch_parts.append('<span style="background:'+bg+';color:'+fg+';border:1px solid '+bd+';border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;margin:2px">'+nm+": "+str(qty)+'</span>')
+        branch_html = "".join(branch_parts) if branch_parts else '<span style="color:#6b4f8a;font-size:10px">Tidak ada stok</span>'
+        st.markdown('<div style="background:#130a1e;border:1px solid #2d1a45;border-radius:8px;padding:10px 14px;margin-top:4px"><div style="display:flex;justify-content:space-between"><div style="color:#e2e8f0;font-size:13px;font-weight:600">'+nama+'</div><div style="color:#a855f7;font-weight:700;font-family:monospace">'+_fmt(harga)+'</div></div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">'+branch_html+'</div></div>', unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 1: AUTO GENERATE
+    # ══════════════════════════════════════════════════════════════════════════
+    if "Auto" in mode:
+        col1,col2,col3 = st.columns(3)
         with col1:
-            st.subheader("📋 Komponen Terpilih")
-            status="✅ Dalam budget" if result["is_within_budget"] else "⚠️ Sedikit melebihi budget"
-            st.caption(status)
-            for c in result["components"]:
-                bs=c.get("branch_stock",{})
-                nama=c.get("nama_barang",c.get("nama",""))
-                harga=c.get("selling_price",c.get("h1",0))
-                stok_str=" · ".join([f"{BRANCH_FULL.get(br,br)}: {qty}" for br,qty in sorted(bs.items(),key=lambda x:-x[1])[:5]]) if bs else "⚠️ Kosong"
-                with st.container():
-                    st.markdown(f"""
-<div style="background:#130a1e;border:1px solid #2d1a45;border-radius:8px;padding:10px 14px;margin-bottom:6px">
-<div style="color:#4a3060;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">{c.get("kategori_label",c.get("kategori",""))}</div>
-<div style="display:flex;justify-content:space-between;align-items:center">
-<div style="color:#e2e8f0;font-size:13px;font-weight:600">{nama}</div>
-<div style="color:#a855f7;font-weight:700;font-family:monospace">{fmt(harga)}</div>
-</div>
-<div style="color:#4a3060;font-size:11px;margin-top:4px">{stok_str}</div>
-</div>""",unsafe_allow_html=True)
-            st.markdown(f"**TOTAL: <span style='color:#34d399;font-size:20px'>{fmt(result.get('total_price',0))}</span>**",unsafe_allow_html=True)
-            st.caption(f"Budget: {fmt(result['budget'])} · Sisa: {fmt(result['sisa_budget'])}")
-            for n in result.get("compat_notes",[]): st.success(n)
-            for w in result.get("compat_warnings",[]): st.warning(w)
-            for w in result.get("build_warnings",[]): st.warning(w)
+            bt = st.selectbox("Tipe Build", BUILD_TYPES, key="ag_bt")
+        with col2:
+            budget_labels=["Entry 3-5jt","Mid-Low 5-8jt","Mid 8-12jt","Mid-High 12-18jt","High 18-25jt","Premium 25-35jt"]
+            budget_ranges=[(3e6,5e6),(5e6,8e6),(8e6,12e6),(12e6,18e6),(18e6,25e6),(25e6,35e6)]
+            tier=st.selectbox("Range Budget",range(len(budget_labels)),format_func=lambda i:budget_labels[i],key="ag_tier")
+            lo,hi=budget_ranges[tier]
+            budget=st.slider("Budget",int(lo),int(hi),int((lo+hi)/2),500000,format="Rp %d",key="ag_budget")
+            st.caption("Budget: **"+_fmt(budget)+"**")
+        with col3:
+            brand=st.selectbox("Preferensi CPU",["Semua","Intel","AMD"],key="ag_brand")
+            # RAM Options
+            ram_type=st.selectbox("Tipe RAM",["Semua","DDR3","DDR4","DDR5"],key="ag_ram_type")
+            ram_cap=st.selectbox("Kapasitas RAM",["Semua","4GB","8GB","16GB","32GB"],key="ag_ram_cap")
+
+        if st.button("Generate Rekomendasi Build",type="primary",use_container_width=True,key="ag_btn"):
+            with st.spinner("Memilih komponen terbaik..."):
+                # Filter komponen RAM sesuai pilihan
+                filtered_comps = []
+                for c in comps:
+                    cat = c.get("kategori","").upper()
+                    if cat in ["RAM LONGDIMM","RAM SODIMM"]:
+                        nama = c.get("nama_barang","").lower()
+                        if ram_type!="Semua" and ram_type.lower() not in nama: continue
+                        if ram_cap!="Semua" and ram_cap.lower().replace(" ","") not in nama.replace(" ",""): continue
+                    filtered_comps.append(c)
+                result = build_pc(filtered_comps, bt, budget, None if brand=="Semua" else brand)
+
+            if not result:
+                st.error("Tidak dapat membuat build. Coba perbesar budget atau ubah filter RAM.")
+            else:
+                st.session_state["ag_result"] = result
+                st.session_state["ag_alts"] = build_alternatives(filtered_comps, bt, budget)
+
+        result = st.session_state.get("ag_result")
+        if result:
+            col1,col2 = st.columns([1.2,1])
+            with col1:
+                st.subheader("Komponen Terpilih")
+                status="✅ Dalam budget" if result["is_within_budget"] else "⚠️ Sedikit melebihi budget"
+                st.caption(status+" | Sisa: "+_fmt(result["sisa_budget"]))
+                total=0
+                for c in result["components"]:
+                    st.markdown("**"+c.get("kategori_label","")+":–**")
+                    _comp_card(c)
+                    total+=float(c.get("selling_price",0))
+                st.markdown("### TOTAL: "+_fmt(total))
+                for n in result.get("compat_notes",[]): st.success(n)
+                for w in result.get("compat_warnings",[]): st.warning(w)
+                for w in result.get("build_warnings",[]): st.warning(w)
+                user=get_user()
+                with st.form("save_ag"):
+                    bn=st.text_input("Nama Build",value=result["build_type"]+" Rp"+str(int(result["total_price"]//1e6))+"Jt")
+                    if st.form_submit_button("Simpan Build"):
+                        try:
+                            from modules.db import save_build_history
+                            save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],"")
+                            st.success("Build tersimpan!")
+                        except Exception as e: st.error("Gagal: "+str(e))
+            with col2:
+                st.subheader("🤖 Penjelasan AI")
+                try:
+                    from modules.config import ANTHROPIC_KEY
+                    if ANTHROPIC_KEY:
+                        import anthropic, json
+                        safe=[{"tipe":c.get("kategori_label",""),"nama":c.get("nama_barang",""),"harga":_fmt(c.get("selling_price",0))} for c in result["components"]]
+                        prompt="Kamu konsultan PC di KLA Computer. Jelaskan build ini untuk customer dalam 3 paragraf Bahasa Indonesia.\nBUILD: "+result["build_type"]+" | Total: "+_fmt(result["total_price"])+"\nKOMPONEN: "+json.dumps(safe,ensure_ascii=False)+"\nFokus pada manfaat, jangan sebut HPP/margin."
+                        client=anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+                        with st.spinner("Generating AI explanation..."):
+                            msg=client.messages.create(model="claude-haiku-4-5",max_tokens=500,messages=[{"role":"user","content":prompt}])
+                            st.write(msg.content[0].text)
+                    else: st.caption("Set ANTHROPIC_API_KEY di Secrets untuk AI explanation.")
+                except Exception as e: st.caption("AI tidak tersedia: "+str(e))
+                alts = st.session_state.get("ag_alts",[])
+                if alts:
+                    st.subheader("Alternatif Build")
+                    for alt in alts:
+                        label="Budget Hemat" if alt["total_price"]<result["total_price"] else "Upgrade Option"
+                        with st.expander(label+" — "+_fmt(alt["total_price"])):
+                            for c in alt["components"]:
+                                st.text(c.get("kategori_label","")+" : "+c.get("nama_barang","")+" — "+_fmt(c.get("selling_price",0)))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # MODE 2: CUSTOM BUILDER
+    # ══════════════════════════════════════════════════════════════════════════
+    else:
+        st.markdown("### Pilih Komponen Satu per Satu")
+        st.caption("Motherboard dan RAM akan otomatis difilter berdasarkan CPU yang dipilih (sesuai panduan kompatibilitas)")
+
+        # Step 1: Brand CPU
+        col1,col2 = st.columns(2)
+        with col1:
+            cpu_brand = st.selectbox("Brand Processor", ["Intel","AMD"], key="cb_brand")
+        with col2:
+            socket_opts = ["Semua Socket"]
+            if cpu_brand == "Intel":
+                socket_opts += ["LGA1150","LGA1151","LGA1151-v2","LGA1200","LGA1700","LGA1851"]
+            else:
+                socket_opts += ["AM3","AM3+","AM4","AM5"]
+            cpu_socket = st.selectbox("Pilih Socket", socket_opts, key="cb_socket")
+
+        # CPU list filtered by brand & socket
+        all_cpu = _by_cat("PROCESSOR", brand_filter=cpu_brand)
+        if cpu_socket != "Semua Socket":
+            # Filter by socket - cari CPU yang chipsetnya sesuai socket
+            def _cpu_socket_match(c):
+                _, rule = _find_cpu_rule(c.get("nama_barang",""))
+                if rule: return rule["socket"] == cpu_socket
+                return False
+            all_cpu = [c for c in all_cpu if _cpu_socket_match(c)]
+
+        cpu_names = ["-- Pilih Processor --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_cpu]
+        sel_cpu_idx = st.selectbox("Pilih Processor", range(len(cpu_names)), format_func=lambda i: cpu_names[i], key="cb_cpu")
+        sel_cpu = all_cpu[sel_cpu_idx-1] if sel_cpu_idx > 0 else None
+        if sel_cpu: _comp_card(sel_cpu)
+
+        # CPU rule untuk filter MB & RAM
+        cpu_rule = None
+        if sel_cpu:
+            _, cpu_rule = _find_cpu_rule(sel_cpu.get("nama_barang",""))
+
+        # Step 2: Motherboard (filter by CPU socket/chipset)
+        st.divider()
+        mb_chips = cpu_rule["chipsets"] if cpu_rule else None
+        all_mb = _by_cat("MOTHERBOARD", socket_filter=mb_chips)
+        if not all_mb: all_mb = _by_cat("MOTHERBOARD")
+        mb_names = ["-- Pilih Motherboard --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_mb]
+        if cpu_rule and mb_chips:
+            st.caption("Motherboard difilter untuk socket CPU ini. Chipset kompatibel: "+", ".join(mb_chips))
+        sel_mb_idx = st.selectbox("Pilih Motherboard", range(len(mb_names)), format_func=lambda i: mb_names[i], key="cb_mb")
+        sel_mb = all_mb[sel_mb_idx-1] if sel_mb_idx > 0 else None
+        if sel_mb: _comp_card(sel_mb)
+
+        # Step 3: RAM (filter by DDR type dari CPU rule)
+        st.divider()
+        req_ram = cpu_rule["ram"] if cpu_rule else "Semua"
+        col1,col2 = st.columns(2)
+        with col1:
+            if req_ram and req_ram != "Semua":
+                # Bisa DDR4/DDR5 untuk gen 12-14
+                ram_types_avail = req_ram.split("/")
+                if len(ram_types_avail) > 1:
+                    ram_type_sel = st.selectbox("Tipe RAM", ram_types_avail, key="cb_ram_type")
+                else:
+                    ram_type_sel = ram_types_avail[0]
+                    st.info("Tipe RAM untuk CPU ini: **"+ram_type_sel+"**")
+            else:
+                ram_type_sel = st.selectbox("Tipe RAM", ["Semua","DDR3","DDR4","DDR5"], key="cb_ram_type2")
+        with col2:
+            ram_cap_sel = st.selectbox("Kapasitas RAM", ["Semua","4GB","8GB","16GB","32GB","64GB"], key="cb_ram_cap")
+
+        all_ram = _by_cat("RAM LONGDIMM", ram_type_filter=ram_type_sel if ram_type_sel!="Semua" else None, ram_cap_filter=ram_cap_sel if ram_cap_sel!="Semua" else None)
+        if not all_ram: all_ram = _by_cat("RAM LONGDIMM")
+        ram_names = ["-- Pilih RAM --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_ram]
+        sel_ram_idx = st.selectbox("Pilih RAM", range(len(ram_names)), format_func=lambda i: ram_names[i], key="cb_ram")
+        sel_ram = all_ram[sel_ram_idx-1] if sel_ram_idx > 0 else None
+        if sel_ram: _comp_card(sel_ram)
+
+        # Step 4: Storage
+        st.divider()
+        col1,col2 = st.columns(2)
+        with col1:
+            all_ssd = _by_cat("SSD INTERNAL")
+            ssd_names = ["-- Pilih SSD (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_ssd]
+            sel_ssd_idx = st.selectbox("Pilih SSD", range(len(ssd_names)), format_func=lambda i: ssd_names[i], key="cb_ssd")
+            sel_ssd = all_ssd[sel_ssd_idx-1] if sel_ssd_idx > 0 else None
+            if sel_ssd: _comp_card(sel_ssd)
+        with col2:
+            all_hdd = _by_cat("HDD INTERNAL")
+            hdd_names = ["-- Pilih HDD (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_hdd]
+            sel_hdd_idx = st.selectbox("Pilih HDD", range(len(hdd_names)), format_func=lambda i: hdd_names[i], key="cb_hdd")
+            sel_hdd = all_hdd[sel_hdd_idx-1] if sel_hdd_idx > 0 else None
+            if sel_hdd: _comp_card(sel_hdd)
+
+        # Step 5: GPU
+        st.divider()
+        all_gpu = _by_cat("GRAPHIC CARD")
+        gpu_names = ["-- Pilih VGA (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_gpu]
+        sel_gpu_idx = st.selectbox("Pilih VGA / Graphic Card", range(len(gpu_names)), format_func=lambda i: gpu_names[i], key="cb_gpu")
+        sel_gpu = all_gpu[sel_gpu_idx-1] if sel_gpu_idx > 0 else None
+        if sel_gpu: _comp_card(sel_gpu)
+
+        # Step 6: PSU
+        st.divider()
+        all_psu = _by_cat("POWER SUPPLY")
+        psu_names = ["-- Pilih Power Supply --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_psu]
+        sel_psu_idx = st.selectbox("Pilih Power Supply", range(len(psu_names)), format_func=lambda i: psu_names[i], key="cb_psu")
+        sel_psu = all_psu[sel_psu_idx-1] if sel_psu_idx > 0 else None
+        if sel_psu: _comp_card(sel_psu)
+
+        # Step 7: Casing
+        st.divider()
+        all_casing = _by_cat("CASING PC")
+        casing_names = ["-- Pilih Casing --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_casing]
+        sel_casing_idx = st.selectbox("Pilih Casing", range(len(casing_names)), format_func=lambda i: casing_names[i], key="cb_casing")
+        sel_casing = all_casing[sel_casing_idx-1] if sel_casing_idx > 0 else None
+        if sel_casing: _comp_card(sel_casing)
+
+        # Step 8: CPU Cooler
+        st.divider()
+        all_cooler = _by_cat("INTERNAL COOLER")
+        cooler_names = ["-- Pilih CPU Cooler (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_cooler]
+        sel_cooler_idx = st.selectbox("Pilih CPU Cooler", range(len(cooler_names)), format_func=lambda i: cooler_names[i], key="cb_cooler")
+        sel_cooler = all_cooler[sel_cooler_idx-1] if sel_cooler_idx > 0 else None
+        if sel_cooler: _comp_card(sel_cooler)
+
+        # ── Summary & Kompatibilitas ──────────────────────────────────────────
+        st.divider()
+        selected_parts = [c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
+        if selected_parts:
+            total = sum(float(c.get("h1",0)) for c in selected_parts)
+            total_hpp = sum(float(c.get("hpp",0)) for c in selected_parts)
+            margin = (total-total_hpp)/total*100 if total>0 else 0
+
+            st.markdown("## Total: **"+_fmt(total)+"**")
+            if is_mgr(): st.caption("Margin: "+str(round(margin,1))+"% | HPP: "+_fmt(total_hpp))
+
+            # Cek kompatibilitas
+            from modules.pc_builder import check_compat
+            compat_comps=[]
+            cat_map={"sel_cpu":"PROCESSOR","sel_mb":"MOTHERBOARD","sel_ram":"RAM LONGDIMM","sel_gpu":"GRAPHIC CARD","sel_psu":"POWER SUPPLY"}
+            for part,cat in [("sel_cpu","PROCESSOR"),("sel_mb","MOTHERBOARD"),("sel_ram","RAM LONGDIMM"),("sel_gpu","GRAPHIC CARD"),("sel_psu","POWER SUPPLY")]:
+                c=locals().get(part)
+                if c:
+                    cc=dict(c); cc["kategori"]=cat; compat_comps.append(cc)
+            if compat_comps:
+                notes,warns=check_compat(compat_comps)
+                for n in notes: st.success(n)
+                for w in warns: st.warning(w)
+
+            # Simpan build
             user=get_user()
-            with st.form("save_build"):
-                build_name=st.text_input("Nama Build",value=f"{bt} Rp{result['total_price']/1e6:.0f}Jt")
-                if st.form_submit_button("💾 Simpan Build"):
+            with st.form("save_custom"):
+                bn=st.text_input("Nama Build",value="Custom Build "+_fmt(total),key="cb_savename")
+                if st.form_submit_button("Simpan Build",type="primary"):
                     try:
                         from modules.db import save_build_history
-                        save_build_history(user["id"],user.get("branch",""),build_name,bt,budget,result["total_price"],"")
+                        save_build_history(user["id"],user.get("branch",""),bn,"Custom",0,total,"")
                         st.success("Build tersimpan!")
-                    except Exception as e: st.error(f"Gagal: {e}")
-        with col2:
-            st.subheader("🤖 Penjelasan AI")
-            try:
-                from modules.config import ANTHROPIC_KEY
-                if ANTHROPIC_KEY:
-                    import anthropic, json
-                    safe=[{"tipe":c.get("kategori_label",""),"nama":c.get("nama_barang",c.get("nama","")),"harga":fmt(c.get("selling_price",c.get("h1",0)))} for c in result["components"]]
-                    prompt=f"Kamu konsultan PC di KLA Computer. Jelaskan build ini untuk customer dalam 3 paragraf Bahasa Indonesia.\nBUILD: {bt} | Total: {fmt(result['total_price'])}\nKOMPONEN: {json.dumps(safe,ensure_ascii=False)}\nFokus pada manfaat, jangan sebut HPP/margin."
-                    client=anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-                    with st.spinner("Generating AI explanation..."):
-                        msg=client.messages.create(model="claude-haiku-4-5",max_tokens=500,messages=[{"role":"user","content":prompt}])
-                        st.write(msg.content[0].text)
-                else: st.caption("Set ANTHROPIC_API_KEY di Secrets untuk AI explanation.")
-            except Exception as e: st.caption(f"AI tidak tersedia: {e}")
-            alts=build_alternatives(comps,bt,budget)
-            if alts:
-                st.subheader("🔀 Alternatif Build")
-                for alt in alts:
-                    label="💰 Budget Hemat" if alt["total_price"]<result["total_price"] else "⬆️ Upgrade Option"
-                    with st.expander(f"{label} — {fmt(alt['total_price'])}"):
-                        for c in alt["components"]:
-                            st.text(f"  {c.get('kategori_label','')}: {c.get('nama_barang',c.get('nama',''))} — {fmt(c.get('selling_price',c.get('h1',0)))}")
+                    except Exception as e: st.error("Gagal: "+str(e))
+        else:
+            st.info("Pilih minimal satu komponen untuk melihat total harga.")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# EXPORT
-# ══════════════════════════════════════════════════════════════════════════════
+
 def page_export():
     st.title("📥 Export Excel")
     an=get_an()
