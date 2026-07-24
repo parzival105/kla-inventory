@@ -76,3 +76,16 @@ INSERT INTO branches (code, name, area, is_active) VALUES
 ON CONFLICT (code) DO NOTHING;
 
 SELECT COUNT(*) AS total_branches FROM branches;
+
+-- Online Presence Table
+CREATE TABLE IF NOT EXISTS online_presence (
+  user_id    BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  username   TEXT NOT NULL,
+  full_name  TEXT NOT NULL,
+  role       TEXT NOT NULL,
+  branch     TEXT,
+  last_seen  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE online_presence ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sa" ON online_presence;
+CREATE POLICY "sa" ON online_presence FOR ALL USING (true);

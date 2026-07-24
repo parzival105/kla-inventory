@@ -91,9 +91,14 @@ def _find_cpu_rule(cpu_name):
 
 def _find_mb_socket(mb_name):
     mn = _n(mb_name)
-    for chip, sock in MB_CHIPSET_SOCKET.items():
-        if chip in mn:
-            return sock, chip.upper()
+    tokens = mn.split()
+    # Sort by length descending agar h610 dicek sebelum h61
+    for chip, sock in sorted(MB_CHIPSET_SOCKET.items(), key=lambda x: -len(x[0])):
+        for token in tokens:
+            if (token == chip or
+                token.startswith(chip) or       # h610m -> starts with h610
+                token.startswith("c"+chip)):    # ch510m -> starts with c+h510
+                return sock, chip.upper()
     return "", ""
 
 def check_compat(comps):

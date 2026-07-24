@@ -176,8 +176,9 @@ def render_sidebar():
         if st.button("🚪 Logout",use_container_width=True):
             clear_session_cookie()
             try:
-                from modules.db import logout
+                from modules.db import logout, remove_presence
                 logout(st.session_state.get("_token",""))
+                remove_presence(get_user()["id"])
             except: pass
             for k in ["user","analysis","components","page","_token"]:
                 if k in st.session_state: del st.session_state[k]
@@ -616,13 +617,20 @@ def page_pcbuilder():
         except: return "Rp 0"
 
     def _by_cat(cat, brand_filter=None, socket_filter=None, ram_type_filter=None, ram_cap_filter=None):
+        from modules.pc_builder import _find_mb_socket
         cat_up = cat.upper()
         res = [c for c in comps if c.get("kategori","").upper()==cat_up and float(c.get("h1",0))>0]
         if brand_filter and brand_filter!="Semua":
             res = [c for c in res if brand_filter.lower() in c.get("nama_barang","").lower() or brand_filter.lower() in c.get("brand","").lower()]
         if socket_filter:
-            valid_chips=[ch.lower() for ch in socket_filter]
-            res = [c for c in res if any(ch in c.get("nama_barang","").lower() for ch in valid_chips)]
+            # Filter MB berdasarkan socket yang terdeteksi dari nama MB
+            target_socket = socket_filter  # ini adalah socket string e.g. "LGA1150"
+            filtered = []
+            for c in res:
+                sock, _ = _find_mb_socket(c.get("nama_barang",""))
+                if sock == target_socket:
+                    filtered.append(c)
+            res = filtered if filtered else res  # fallback ke semua jika tidak ada
         if ram_type_filter and ram_type_filter!="Semua":
             res = [c for c in res if ram_type_filter.lower() in c.get("nama_barang","").lower()]
         if ram_cap_filter and ram_cap_filter!="Semua":
@@ -774,12 +782,13 @@ def page_pcbuilder():
 
         # Step 2: Motherboard (filter by CPU socket/chipset)
         st.divider()
+        cpu_socket = cpu_rule["socket"] if cpu_rule else None
         mb_chips = cpu_rule["chipsets"] if cpu_rule else None
-        all_mb = _by_cat("MOTHERBOARD", socket_filter=mb_chips)
+        all_mb = _by_cat("MOTHERBOARD", socket_filter=cpu_socket)
         if not all_mb: all_mb = _by_cat("MOTHERBOARD")
         mb_names = ["-- Pilih Motherboard --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_mb]
-        if cpu_rule and mb_chips:
-            st.caption("Motherboard difilter untuk socket CPU ini. Chipset kompatibel: "+", ".join(mb_chips))
+        if cpu_rule and cpu_socket:
+            st.caption("MB difilter untuk socket "+cpu_socket+". Chipset: "+", ".join(mb_chips or []))
         sel_mb_idx = st.selectbox("Pilih Motherboard", range(len(mb_names)), format_func=lambda i: mb_names[i], key="cb_mb")
         sel_mb = all_mb[sel_mb_idx-1] if sel_mb_idx > 0 else None
         if sel_mb: _comp_card(sel_mb)
@@ -1189,6 +1198,11 @@ def main():
             if comps:
                 st.session_state.components = comps
         except: pass
+    # Update online presence
+    try:
+        from modules.db import update_presence
+        update_presence(get_user())
+    except: pass
     render_sidebar()
     p=st.session_state.page
     if p=="dashboard": page_dashboard()

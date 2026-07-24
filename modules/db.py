@@ -128,3 +128,42 @@ def deactivate_branch(code):
         _patch("branches", {"code": code}, {"is_active": False})
         return True, f"Cabang {code} dinonaktifkan."
     except Exception as e: return False, str(e)
+
+# ── Online Presence ───────────────────────────────────────────────────────────
+def update_presence(user):
+    """Update last_seen user. Dipanggil tiap render."""
+    try:
+        from datetime import datetime
+        data = {
+            "user_id": user["id"],
+            "username": user["username"],
+            "full_name": user["full_name"],
+            "role": user["role"],
+            "branch": user.get("branch",""),
+            "last_seen": datetime.utcnow().isoformat() + "Z"
+        }
+        # Upsert
+        import requests as _req
+        h = {"apikey":SUPABASE_KEY,"Authorization":f"Bearer {SUPABASE_KEY}",
+             "Content-Type":"application/json","Prefer":"resolution=merge-duplicates"}
+        _req.post(f"{SUPABASE_URL}/rest/v1/online_presence",
+                  headers=h, json=data, timeout=5)
+    except: pass
+
+def get_online_users(minutes=3):
+    """Ambil user yang aktif dalam N menit terakhir."""
+    try:
+        from datetime import datetime, timedelta
+        cutoff = (datetime.utcnow() - timedelta(minutes=minutes)).isoformat() + "Z"
+        rows = _get("online_presence", {
+            "last_seen": f"gte.{cutoff}",
+            "order": "last_seen.desc",
+            "select": "*"
+        })
+        return rows
+    except: return []
+
+def remove_presence(user_id):
+    """Hapus presence saat logout."""
+    try: _delete("online_presence", {"user_id": str(user_id)})
+    except: pass
