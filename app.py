@@ -171,8 +171,27 @@ def render_sidebar():
             if st.button(label,key=f"nav_{key}",use_container_width=True,type="primary" if cur==key else "secondary"):
                 go(key)
         st.divider()
+        # Online Users Indicator
+        try:
+            from modules.db import get_online_users
+            from modules.config import BRANCH_FULL, ROLE_LABELS
+            online = get_online_users(minutes=3)
+            me_id = user["id"]
+            total = len(online)
+            label = "🟢 " + str(total) + " user online"
+            with st.expander(label, expanded=False):
+                for u in online:
+                    is_me = u["user_id"] == me_id
+                    nm = u["full_name"] + (" (Anda)" if is_me else "")
+                    role_lbl = ROLE_LABELS.get(u.get("role",""),"")
+                    br = BRANCH_FULL.get(u.get("branch",""),"")
+                    dot = "🟢" if is_me else "🔵"
+                    st.markdown(dot + " **" + nm + "**")
+                    info = role_lbl + (" | " + br if br else "")
+                    if info: st.caption(info)
+        except: pass
         an=get_an()
-        if an: st.caption(f"📂 {an.get('filename','')}")
+        if an: st.caption("📂 " + an.get("filename",""))
         if st.button("🚪 Logout",use_container_width=True):
             clear_session_cookie()
             try:
