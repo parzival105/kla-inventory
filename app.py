@@ -729,23 +729,22 @@ def page_pcbuilder():
                 for w in result.get("compat_warnings",[]): st.warning(w)
                 for w in result.get("build_warnings",[]): st.warning(w)
                 user=get_user()
-                with st.form("save_ag"):
-                    bn=st.text_input("Nama Build",value=result["build_type"]+" Rp"+str(int(result["total_price"]//1e6))+"Jt")
-                    c_sv1,c_sv2=st.columns(2)
-                    with c_sv1:
-                        if st.form_submit_button("💾 Simpan Build",type="primary"):
-                            try:
-                                import json as _j
-                                from modules.db import save_build_history
-                                save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j.dumps(result["components"],ensure_ascii=False,default=str))
-                                st.session_state["ag_saved_name"]=bn
-                                st.session_state["ag_saved_result"]=result
-                                st.success("Build tersimpan! Lihat di Riwayat Build.")
-                            except Exception as e: st.error("Gagal: "+str(e))
-                    with c_sv2:
-                        pdf=_build_pdf(bn,result["build_type"],result["total_price"],result["components"],result.get("compat_notes",[]),result.get("compat_warnings",[]),user)
-                        if pdf:
-                            st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag")
+                if "ag_build_name" not in st.session_state:
+                    st.session_state["ag_build_name"]=result["build_type"]+" Rp"+str(int(result["total_price"]//1e6))+"Jt"
+                bn=st.text_input("Nama Build",key="ag_build_name")
+                c_sv1,c_sv2=st.columns(2)
+                with c_sv1:
+                    if st.button("💾 Simpan Build",type="primary",key="btn_save_ag"):
+                        try:
+                            import json as _j
+                            from modules.db import save_build_history
+                            save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j.dumps(result["components"],ensure_ascii=False,default=str))
+                            st.success("Build tersimpan! Lihat di Riwayat Build.")
+                        except Exception as e: st.error("Gagal: "+str(e))
+                with c_sv2:
+                    pdf=_build_pdf(bn,result["build_type"],result["total_price"],result["components"],result.get("compat_notes",[]),result.get("compat_warnings",[]),user)
+                    if pdf:
+                        st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag")
             with col2:
                 st.subheader("🤖 Penjelasan AI")
                 try:
@@ -920,30 +919,24 @@ def page_pcbuilder():
 
             # Simpan build
             user=get_user()
-            with st.form("save_custom"):
-                bn=st.text_input("Nama Build",value="Custom Build "+_fmt(total),key="cb_savename")
-                c_sv1,c_sv2=st.columns(2)
-                with c_sv1:
-                    if st.form_submit_button("💾 Simpan Build",type="primary"):
-                        try:
-                            import json as _j
-                            from modules.db import save_build_history
-                            # Buat list komponen dari selected parts
-                            parts=[c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
-                            for p in parts:
-                                p.setdefault("selling_price",float(p.get("h1",0)))
-                                p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
-                            save_build_history(user["id"],user.get("branch",""),bn,"Custom",0,total,_j.dumps(parts,ensure_ascii=False,default=str))
-                            st.success("Build tersimpan! Lihat di Riwayat Build.")
-                        except Exception as e: st.error("Gagal: "+str(e))
-                with c_sv2:
-                    parts2=[c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
-                    for p in parts2:
-                        p.setdefault("selling_price",float(p.get("h1",0)))
-                        p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
-                    pdf=_build_pdf(bn,"Custom",total,parts2,notes if compat_comps else [],warns if compat_comps else [],user)
-                    if pdf:
-                        st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_custom")
+            bn=st.text_input("Nama Build",value="Custom Build "+_fmt(total),key="cb_savename")
+            parts=[c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
+            for p in parts:
+                p.setdefault("selling_price",float(p.get("h1",0)))
+                p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
+            c_sv1,c_sv2=st.columns(2)
+            with c_sv1:
+                if st.button("💾 Simpan Build",type="primary",key="btn_save_cb"):
+                    try:
+                        import json as _j
+                        from modules.db import save_build_history
+                        save_build_history(user["id"],user.get("branch",""),bn,"Custom",0,total,_j.dumps(parts,ensure_ascii=False,default=str))
+                        st.success("Build tersimpan! Lihat di Riwayat Build.")
+                    except Exception as e: st.error("Gagal: "+str(e))
+            with c_sv2:
+                pdf=_build_pdf(bn,"Custom",total,parts,notes if compat_comps else [],warns if compat_comps else [],user)
+                if pdf:
+                    st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_custom")
         else:
             st.info("Pilih minimal satu komponen untuk melihat total harga.")
 

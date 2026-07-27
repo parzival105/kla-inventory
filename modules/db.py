@@ -167,3 +167,9 @@ def remove_presence(user_id):
     """Hapus presence saat logout."""
     try: _delete("online_presence", {"user_id": str(user_id)})
     except: pass
+
+def get_build_history(user_id=None, limit=50):
+    params = {"order":"created_at.desc","limit":str(limit),"select":"*"}
+    if user_id: params["user_id"] = f"eq.{user_id}"
+    try: return _get("build_history", params)
+    except: return []
