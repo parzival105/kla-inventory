@@ -89,3 +89,6 @@ CREATE TABLE IF NOT EXISTS online_presence (
 ALTER TABLE online_presence ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "sa" ON online_presence;
 CREATE POLICY "sa" ON online_presence FOR ALL USING (true);
+
+-- Tambah kolom components ke build_history jika belum ada
+ALTER TABLE build_history ADD COLUMN IF NOT EXISTS components TEXT DEFAULT '';

@@ -164,7 +164,7 @@ def render_sidebar():
 <div style="color:#a855f7;font-size:12px">{user.get("role_label",user["role"])}</div>
 {"<div style='color:#4a3060;font-size:11px'>📍 "+user.get("branch_name","")+"</div>" if user.get("branch_name") else ""}
 </div>""", unsafe_allow_html=True)
-        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_leader()),("🏪 Kelola Cabang","branches",is_admin())]
+        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_leader()),("🏪 Kelola Cabang","branches",is_admin()),("📋 Riwayat Build","build_history",True)]
         cur=st.session_state.page
         for label,key,show in menus:
             if not show: continue
@@ -731,12 +731,21 @@ def page_pcbuilder():
                 user=get_user()
                 with st.form("save_ag"):
                     bn=st.text_input("Nama Build",value=result["build_type"]+" Rp"+str(int(result["total_price"]//1e6))+"Jt")
-                    if st.form_submit_button("Simpan Build"):
-                        try:
-                            from modules.db import save_build_history
-                            save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],"")
-                            st.success("Build tersimpan!")
-                        except Exception as e: st.error("Gagal: "+str(e))
+                    c_sv1,c_sv2=st.columns(2)
+                    with c_sv1:
+                        if st.form_submit_button("💾 Simpan Build",type="primary"):
+                            try:
+                                import json as _j
+                                from modules.db import save_build_history
+                                save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j.dumps(result["components"],ensure_ascii=False,default=str))
+                                st.session_state["ag_saved_name"]=bn
+                                st.session_state["ag_saved_result"]=result
+                                st.success("Build tersimpan! Lihat di Riwayat Build.")
+                            except Exception as e: st.error("Gagal: "+str(e))
+                    with c_sv2:
+                        pdf=_build_pdf(bn,result["build_type"],result["total_price"],result["components"],result.get("compat_notes",[]),result.get("compat_warnings",[]),user)
+                        if pdf:
+                            st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag")
             with col2:
                 st.subheader("🤖 Penjelasan AI")
                 try:
@@ -913,12 +922,28 @@ def page_pcbuilder():
             user=get_user()
             with st.form("save_custom"):
                 bn=st.text_input("Nama Build",value="Custom Build "+_fmt(total),key="cb_savename")
-                if st.form_submit_button("Simpan Build",type="primary"):
-                    try:
-                        from modules.db import save_build_history
-                        save_build_history(user["id"],user.get("branch",""),bn,"Custom",0,total,"")
-                        st.success("Build tersimpan!")
-                    except Exception as e: st.error("Gagal: "+str(e))
+                c_sv1,c_sv2=st.columns(2)
+                with c_sv1:
+                    if st.form_submit_button("💾 Simpan Build",type="primary"):
+                        try:
+                            import json as _j
+                            from modules.db import save_build_history
+                            # Buat list komponen dari selected parts
+                            parts=[c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
+                            for p in parts:
+                                p.setdefault("selling_price",float(p.get("h1",0)))
+                                p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
+                            save_build_history(user["id"],user.get("branch",""),bn,"Custom",0,total,_j.dumps(parts,ensure_ascii=False,default=str))
+                            st.success("Build tersimpan! Lihat di Riwayat Build.")
+                        except Exception as e: st.error("Gagal: "+str(e))
+                with c_sv2:
+                    parts2=[c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
+                    for p in parts2:
+                        p.setdefault("selling_price",float(p.get("h1",0)))
+                        p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
+                    pdf=_build_pdf(bn,"Custom",total,parts2,notes if compat_comps else [],warns if compat_comps else [],user)
+                    if pdf:
+                        st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_custom")
         else:
             st.info("Pilih minimal satu komponen untuk melihat total harga.")
 
@@ -1200,6 +1225,185 @@ def page_branches():
                         else: st.error(msg)
 
 # ══════════════════════════════════════════════════════════════════════════════
+# BUILD HISTORY
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_pdf(build_name, build_type, total_price, components, compat_notes, compat_warnings, user):
+    """Generate PDF bytes untuk hasil build PC."""
+    try:
+        import io as _io
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, HRFlowable
+        from datetime import datetime
+
+        buf = _io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4,
+            rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle("title", parent=styles["Title"],
+            fontSize=18, textColor=colors.HexColor("#431061"), spaceAfter=6)
+        sub_style = ParagraphStyle("sub", parent=styles["Normal"],
+            fontSize=10, textColor=colors.HexColor("#555555"), spaceAfter=4)
+        head_style = ParagraphStyle("head", parent=styles["Heading2"],
+            fontSize=12, textColor=colors.HexColor("#431061"), spaceBefore=12, spaceAfter=6)
+        body_style = ParagraphStyle("body", parent=styles["Normal"], fontSize=10, spaceAfter=3)
+        ok_style = ParagraphStyle("ok", parent=styles["Normal"],
+            fontSize=9, textColor=colors.HexColor("#059669"), spaceAfter=2)
+        warn_style = ParagraphStyle("warn", parent=styles["Normal"],
+            fontSize=9, textColor=colors.HexColor("#d97706"), spaceAfter=2)
+
+        story = []
+        story.append(Paragraph("KLA Business Suite", sub_style))
+        story.append(Paragraph("Hasil Konfigurasi PC", title_style))
+        story.append(Paragraph("PT KLA Teknologi Indonesia", sub_style))
+        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#431061")))
+        story.append(Spacer(1, 0.3*cm))
+
+        # Info build
+        now = datetime.now().strftime("%d %B %Y, %H:%M")
+        story.append(Paragraph("<b>Nama Build:</b> " + build_name, body_style))
+        story.append(Paragraph("<b>Tipe:</b> " + build_type, body_style))
+        story.append(Paragraph("<b>Dibuat oleh:</b> " + user.get("full_name","") + " (" + user.get("role_label",user.get("role","")) + ")", body_style))
+        story.append(Paragraph("<b>Tanggal:</b> " + now, body_style))
+        story.append(Spacer(1, 0.4*cm))
+
+        # Tabel komponen
+        story.append(Paragraph("Daftar Komponen", head_style))
+        table_data = [["No", "Kategori", "Nama Komponen", "Harga"]]
+        total = 0
+        for i, c in enumerate(components):
+            harga = float(c.get("selling_price", c.get("h1", 0)))
+            total += harga
+            def fs(v):
+                a=abs(v)
+                if a>=1e6: return "Rp "+f"{a/1e6:.1f}"+"Jt"
+                if a>=1e3: return "Rp "+f"{a/1e3:.0f}"+"Rb"
+                return "Rp "+f"{a:,.0f}"
+            table_data.append([
+                str(i+1),
+                c.get("kategori_label", c.get("kategori","")),
+                c.get("nama_barang", c.get("nama","")),
+                fs(harga)
+            ])
+        table_data.append(["", "", "TOTAL", fs(total)])
+
+        t = Table(table_data, colWidths=[1*cm, 3.5*cm, 9*cm, 2.5*cm])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#431061")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 9),
+            ("ROWBACKGROUNDS", (0,1), (-1,-2), [colors.HexColor("#F9F6FF"), colors.white]),
+            ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#EDE9F6")),
+            ("FONTNAME", (0,-1), (-1,-1), "Helvetica-Bold"),
+            ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#CCCCCC")),
+            ("ALIGN", (3,0), (3,-1), "RIGHT"),
+            ("ALIGN", (0,0), (0,-1), "CENTER"),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+            ("PADDING", (0,0), (-1,-1), 5),
+        ]))
+        story.append(t)
+        story.append(Spacer(1, 0.4*cm))
+
+        # Kompatibilitas
+        if compat_notes or compat_warnings:
+            story.append(Paragraph("Hasil Pengecekan Kompatibilitas", head_style))
+            for n in compat_notes:
+                story.append(Paragraph("✓ " + n.replace("OK ",""), ok_style))
+            for w in compat_warnings:
+                story.append(Paragraph("⚠ " + w.replace("PERHATIAN ","").replace("TIDAK COCOK ",""), warn_style))
+            story.append(Spacer(1, 0.3*cm))
+
+        # Footer
+        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CCCCCC")))
+        story.append(Spacer(1, 0.2*cm))
+        story.append(Paragraph("Dokumen ini dibuat otomatis oleh KLA Business Suite. "
+            "Harga dapat berubah sewaktu-waktu. Hubungi cabang KLA terdekat untuk konfirmasi stok.",
+            ParagraphStyle("footer", parent=styles["Normal"], fontSize=7,
+                textColor=colors.HexColor("#999999"), spaceAfter=0)))
+
+        doc.build(story)
+        buf.seek(0)
+        return buf.read()
+    except Exception as e:
+        return None
+
+def page_build_history():
+    st.title("📋 Riwayat Build PC")
+    from modules.db import get_build_history
+    from modules.config import BRANCH_FULL, ROLE_LABELS
+    user = get_user()
+
+    # Admin & area manager lihat semua, store leader & sales lihat milik sendiri
+    if is_mgr():
+        history = get_build_history(limit=50)
+    else:
+        history = get_build_history(user_id=user["id"], limit=50)
+
+    if not history:
+        st.info("Belum ada build yang disimpan.")
+        return
+
+    c1,c2,c3 = st.columns(3)
+    with c1: st.metric("Total Build", len(history))
+    with c2: st.metric("Build Bulan Ini", sum(1 for h in history if h.get("created_at","")[:7] >= "2025-01"))
+    with c3: st.metric("Total Nilai", "Rp " + f"{sum(float(h.get('total_price',0)) for h in history)/1e6:.1f}" + "Jt")
+    st.divider()
+
+    for h in history:
+        tp = float(h.get("total_price",0))
+        budget = float(h.get("budget",0))
+        created = h.get("created_at","")[:16].replace("T"," ")
+        with st.expander(h.get("build_name","Build") + " — " + _fmt_h(tp) + " | " + created):
+            col1,col2 = st.columns([3,1])
+            with col1:
+                st.markdown("**Tipe:** " + h.get("build_type","Custom"))
+                st.markdown("**Budget:** " + _fmt_h(budget) if budget > 0 else "")
+                st.markdown("**Total:** " + _fmt_h(tp))
+                if h.get("branch"): st.markdown("**Cabang:** " + BRANCH_FULL.get(h["branch"],h["branch"]))
+                notes = h.get("ai_notes","")
+                if notes:
+                    st.markdown("**Catatan:**")
+                    st.caption(notes[:300])
+            with col2:
+                # Download PDF
+                import json as _json
+                try:
+                    comps_raw = h.get("components","")
+                    if isinstance(comps_raw, str) and comps_raw:
+                        comps = _json.loads(comps_raw)
+                    else:
+                        comps = []
+                except: comps = []
+
+                pdf_bytes = _build_pdf(
+                    h.get("build_name","Build"),
+                    h.get("build_type","Custom"),
+                    tp, comps, [], [], user
+                )
+                if pdf_bytes:
+                    fname = h.get("build_name","build").replace(" ","_") + ".pdf"
+                    st.download_button(
+                        "📥 Download PDF",
+                        data=pdf_bytes,
+                        file_name=fname,
+                        mime="application/pdf",
+                        key="dl_"+str(h.get("id",""))
+                    )
+
+def _fmt_h(v):
+    try:
+        v=float(v); a=abs(v)
+        if a>=1e6: return "Rp "+f"{a/1e6:.1f}"+"Jt"
+        if a>=1e3: return "Rp "+f"{a/1e3:.0f}"+"Rb"
+        return "Rp "+f"{a:,.0f}"
+    except: return "Rp 0"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ROUTER
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
@@ -1237,6 +1441,7 @@ def main():
     elif p=="export": page_export()
     elif p=="users": page_users()
     elif p=="branches": page_branches()
+    elif p=="build_history": page_build_history()
     else: page_dashboard()
 
 main()
