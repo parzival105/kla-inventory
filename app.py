@@ -164,12 +164,48 @@ def render_sidebar():
 <div style="color:#a855f7;font-size:12px">{user.get("role_label",user["role"])}</div>
 {"<div style='color:#4a3060;font-size:11px'>📍 "+user.get("branch_name","")+"</div>" if user.get("branch_name") else ""}
 </div>""", unsafe_allow_html=True)
-        menus=[("🏠 Dashboard","dashboard",True),("📦 Inventory","inventory",is_leader()),("🏢 Branch Intelligence","branch",is_leader()),("🔄 Transfer Engine","transfer",is_leader()),("🛒 Restock Engine","restock",is_leader()),("☠️ Dead Stock","deadstock",is_leader()),("💰 Pricing","pricing",is_leader()),("🤖 AI Recommendation","recs",is_leader()),("🔍 Sales Assistant","sales",True),("🖥️ PC Builder","pcbuilder",True),("📥 Export Excel","export",is_admin()),("👥 User Management","users",is_leader()),("🏪 Kelola Cabang","branches",is_admin()),("📋 Riwayat Build","build_history",True)]
         cur=st.session_state.page
-        for label,key,show in menus:
-            if not show: continue
-            if st.button(label,key=f"nav_{key}",use_container_width=True,type="primary" if cur==key else "secondary"):
-                go(key)
+
+        # Dashboard
+        if st.button("🏠 Dashboard",key="nav_dashboard",use_container_width=True,
+                     type="primary" if cur=="dashboard" else "secondary"):
+            go("dashboard")
+
+        # Analisa Inventory
+        if is_leader():
+            inv_keys=["inventory","branch","transfer","restock","deadstock","pricing","recs"]
+            inv_active=cur in inv_keys
+            with st.expander("📊 Analisa Inventory"+(" ◀" if inv_active else ""),expanded=inv_active):
+                for key,label in [("inventory","📦 Inventory"),("branch","🏢 Branch Intelligence"),
+                    ("transfer","🔄 Transfer Engine"),("restock","🛒 Restock Engine"),
+                    ("deadstock","☠️ Dead Stock"),("pricing","💰 Pricing"),("recs","🤖 AI Recommendation")]:
+                    if st.button(label,key="nav_"+key,use_container_width=True,
+                                 type="primary" if cur==key else "secondary"):
+                        go(key)
+
+        # Sales Tools
+        sales_keys=["sales","pcbuilder","build_history"]
+        sales_active=cur in sales_keys
+        with st.expander("🛒 Sales Tools"+(" ◀" if sales_active else ""),expanded=sales_active):
+            for key,label in [("sales","🔍 Sales Assistant"),("pcbuilder","🖥️ PC Builder"),
+                              ("build_history","📋 Riwayat Build")]:
+                if st.button(label,key="nav_"+key,use_container_width=True,
+                             type="primary" if cur==key else "secondary"):
+                    go(key)
+
+        # Pengaturan
+        if is_leader():
+            adm_items=[]
+            if is_admin(): adm_items.append(("export","📥 Export Excel"))
+            adm_items.append(("users","👥 User Management"))
+            if is_admin(): adm_items.append(("branches","🏪 Kelola Cabang"))
+            adm_keys=[k for k,_ in adm_items]
+            adm_active=cur in adm_keys
+            with st.expander("⚙️ Pengaturan"+(" ◀" if adm_active else ""),expanded=adm_active):
+                for key,label in adm_items:
+                    if st.button(label,key="nav_"+key,use_container_width=True,
+                                 type="primary" if cur==key else "secondary"):
+                        go(key)
         st.divider()
         # Online Users Indicator
         try:
