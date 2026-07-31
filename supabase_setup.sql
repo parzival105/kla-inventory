@@ -92,3 +92,250 @@ CREATE POLICY "sa" ON online_presence FOR ALL USING (true);
 
 -- Tambah kolom components ke build_history jika belum ada
 ALTER TABLE build_history ADD COLUMN IF NOT EXISTS components TEXT DEFAULT '';
+
+-- Stock Request Table
+CREATE TABLE IF NOT EXISTS stock_requests (
+  id           BIGSERIAL PRIMARY KEY,
+  user_id      BIGINT REFERENCES users(id),
+  username     TEXT NOT NULL,
+  full_name    TEXT NOT NULL,
+  branch       TEXT NOT NULL,
+  branch_name  TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  qty          INTEGER NOT NULL DEFAULT 1,
+  reason       TEXT,
+  priority     TEXT DEFAULT 'Normal',
+  status       TEXT DEFAULT 'pending',
+  admin_note   TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ
+);
+ALTER TABLE stock_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sa" ON stock_requests;
+CREATE POLICY "sa" ON stock_requests FOR ALL USING (true);
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- PROJECT REQUEST MANAGEMENT
+-- ══════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS project_requests (
+  id              BIGSERIAL PRIMARY KEY,
+  project_number  TEXT UNIQUE NOT NULL,
+  -- Customer
+  customer_name   TEXT NOT NULL,
+  customer_company TEXT,
+  customer_pic    TEXT,
+  customer_phone  TEXT,
+  customer_email  TEXT,
+  -- Sales
+  branch          TEXT NOT NULL,
+  branch_name     TEXT,
+  sales_id        BIGINT REFERENCES users(id),
+  sales_name      TEXT,
+  -- Status & Priority
+  status          TEXT NOT NULL DEFAULT 'new_request',
+  priority        TEXT DEFAULT 'Medium',
+  -- Value
+  estimated_value NUMERIC DEFAULT 0,
+  deal_value      NUMERIC DEFAULT 0,
+  -- Dates
+  deadline        DATE,
+  deal_date       DATE,
+  lost_date       DATE,
+  lost_reason     TEXT,
+  lost_note       TEXT,
+  -- Meta
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_products (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  brand           TEXT,
+  part_number     TEXT,
+  category        TEXT,
+  product_name    TEXT NOT NULL,
+  qty             INTEGER DEFAULT 1,
+  budget_customer NUMERIC DEFAULT 0,
+  customer_notes  TEXT,
+  -- PM Review
+  pm_available    TEXT,   -- 'yes','no','eol'
+  pm_eol_reason   TEXT,
+  pm_eol_status   TEXT,   -- 'end_of_life','end_of_sale','discontinue'
+  pm_notes        TEXT,
+  pm_reviewed_at  TIMESTAMPTZ,
+  pm_reviewed_by  TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_replacement (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  product_id      BIGINT REFERENCES project_products(id),
+  original_brand  TEXT,
+  original_model  TEXT,
+  new_brand       TEXT,
+  new_model       TEXT,
+  new_category    TEXT,
+  performance     TEXT,  -- 'equal','higher','lower'
+  price_change    TEXT,
+  pm_notes        TEXT,
+  approved        BOOLEAN DEFAULT false,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_supplier (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  supplier_name   TEXT NOT NULL,
+  price_modal     NUMERIC DEFAULT 0,
+  stock           INTEGER DEFAULT 0,
+  lead_time       TEXT,
+  moq             INTEGER DEFAULT 1,
+  warranty        TEXT,
+  notes           TEXT,
+  is_selected     BOOLEAN DEFAULT false,
+  added_by        TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_quotation (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  quotation_number TEXT UNIQUE,
+  product_name    TEXT,
+  qty             INTEGER DEFAULT 1,
+  price_modal     NUMERIC DEFAULT 0,
+  price_sell      NUMERIC DEFAULT 0,
+  margin_pct      NUMERIC DEFAULT 0,
+  discount        NUMERIC DEFAULT 0,
+  total_value     NUMERIC DEFAULT 0,
+  status          TEXT DEFAULT 'draft',  -- draft,sent,revised,approved
+  notes           TEXT,
+  created_by      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  sent_at         TIMESTAMPTZ,
+  approved_at     TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS project_followup (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  followup_date   DATE NOT NULL,
+  followup_time   TEXT,
+  media           TEXT,   -- wa,phone,email,meeting
+  result          TEXT,
+  notes           TEXT,
+  next_followup   DATE,
+  created_by      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_timeline (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  actor           TEXT,
+  action          TEXT NOT NULL,
+  detail          TEXT,
+  old_status      TEXT,
+  new_status      TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_knowledge_base (
+  id              BIGSERIAL PRIMARY KEY,
+  original_brand  TEXT,
+  original_model  TEXT NOT NULL,
+  replacement_brand TEXT,
+  replacement_model TEXT,
+  reason          TEXT,
+  supplier_name   TEXT,
+  usage_count     INTEGER DEFAULT 1,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE project_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_replacement ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_supplier ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_quotation ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_followup ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_timeline ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_knowledge_base ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "sa" ON project_requests;
+DROP POLICY IF EXISTS "sa" ON project_products;
+DROP POLICY IF EXISTS "sa" ON project_replacement;
+DROP POLICY IF EXISTS "sa" ON project_supplier;
+DROP POLICY IF EXISTS "sa" ON project_quotation;
+DROP POLICY IF EXISTS "sa" ON project_followup;
+DROP POLICY IF EXISTS "sa" ON project_timeline;
+DROP POLICY IF EXISTS "sa" ON project_knowledge_base;
+
+CREATE POLICY "sa" ON project_requests FOR ALL USING (true);
+CREATE POLICY "sa" ON project_products FOR ALL USING (true);
+CREATE POLICY "sa" ON project_replacement FOR ALL USING (true);
+CREATE POLICY "sa" ON project_supplier FOR ALL USING (true);
+CREATE POLICY "sa" ON project_quotation FOR ALL USING (true);
+CREATE POLICY "sa" ON project_followup FOR ALL USING (true);
+CREATE POLICY "sa" ON project_timeline FOR ALL USING (true);
+CREATE POLICY "sa" ON project_knowledge_base FOR ALL USING (true);
+
+SELECT 'Project Request Management tables created!' AS status;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- PROJECT REQUEST MANAGEMENT — ADD-ON: Documents, Notifications, Logs
+-- (Jalankan blok ini terpisah jika tabel di atas sudah pernah dibuat sebelumnya)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS project_documents (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT NOT NULL REFERENCES project_requests(id) ON DELETE CASCADE,
+  file_name       TEXT NOT NULL,
+  storage_path    TEXT NOT NULL,
+  file_size       BIGINT DEFAULT 0,
+  content_type    TEXT,
+  category        TEXT DEFAULT 'Lainnya',  -- 'Quotation','PO','Foto Produk','Lainnya'
+  uploaded_by     TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_notifications (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT REFERENCES project_requests(id) ON DELETE CASCADE,
+  notif_type      TEXT NOT NULL,   -- 'new_request','pm_late','supplier_late','quotation_late','followup_late','deadline_near','po_received','delivered','closed'
+  message         TEXT NOT NULL,
+  branch          TEXT,
+  target_role     TEXT,            -- role that should see this notification, or '' for everyone relevant
+  is_read         BOOLEAN DEFAULT false,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS project_logs (
+  id              BIGSERIAL PRIMARY KEY,
+  project_id      BIGINT REFERENCES project_requests(id) ON DELETE CASCADE,
+  actor           TEXT,
+  event           TEXT NOT NULL,   -- e.g. 'document_upload','document_delete','notification_run'
+  detail          TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE project_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE project_logs ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "sa" ON project_documents;
+DROP POLICY IF EXISTS "sa" ON project_notifications;
+DROP POLICY IF EXISTS "sa" ON project_logs;
+
+CREATE POLICY "sa" ON project_documents FOR ALL USING (true);
+CREATE POLICY "sa" ON project_notifications FOR ALL USING (true);
+CREATE POLICY "sa" ON project_logs FOR ALL USING (true);
+
+-- Jangan lupa buat Storage Bucket "kla-inventory" (Public) jika belum ada,
+-- dokumen project akan disimpan di path crm_docs/{project_id}/{filename}
+
+SELECT 'Project Request Management add-on (documents, notifications, logs) created!' AS status;

@@ -193,6 +193,26 @@ def render_sidebar():
                              type="primary" if cur==key else "secondary"):
                     go(key)
 
+        # CRM
+        crm_keys=["crm_dashboard","crm_kanban","crm_table","crm_new","crm_kb","crm_notif","crm_calendar","crm_timeline"]
+        crm_active=cur in crm_keys or cur.startswith("crm_")
+        try:
+            from modules.crm_db import get_notifications
+            _unread_count = len(get_notifications(unread_only=True, limit=200))
+        except Exception:
+            _unread_count = 0
+        crm_title = "🎯 Project CRM" + (f" 🔴{_unread_count}" if _unread_count else "")
+        with st.expander(crm_title+(" ◀" if crm_active else ""),expanded=crm_active):
+            crm_items=[("crm_dashboard","📊 Dashboard CRM"),("crm_kanban","🗂️ Kanban Board"),
+                       ("crm_table","📋 Daftar Project"),("crm_calendar","📅 Calendar"),
+                       ("crm_timeline","📈 Timeline View"),("crm_new","➕ Project Baru"),
+                       ("crm_kb","🧠 Knowledge Base"),
+                       ("crm_notif",f"🔔 Notifikasi{' ('+str(_unread_count)+')' if _unread_count else ''}")]
+            for key,label in crm_items:
+                if st.button(label,key="nav_"+key,use_container_width=True,
+                             type="primary" if cur==key else "secondary"):
+                    go(key)
+
         # Pengaturan
         if is_leader():
             adm_items=[]
@@ -1433,6 +1453,52 @@ def _fmt_h(v):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# CRM PAGES
+# ══════════════════════════════════════════════════════════════════════════════
+def page_crm_dashboard():
+    from modules.crm_pages import render_dashboard
+    render_dashboard(get_user())
+
+def page_crm_kanban():
+    from modules.crm_pages import render_kanban
+    render_kanban(get_user())
+
+def page_crm_table():
+    from modules.crm_pages import render_table
+    render_table(get_user())
+
+def page_crm_new():
+    user = get_user()
+    if user["role"] not in ["sales","store_leader","super_admin","area_manager"]:
+        st.error("Tidak punya akses membuat project"); return
+    from modules.crm_pages import render_new_project
+    render_new_project(user)
+
+def page_crm_detail():
+    project_id = st.session_state.get("crm_project_id")
+    if not project_id:
+        go("crm_kanban"); return
+    from modules.crm_pages import render_project_detail
+    render_project_detail(get_user(), project_id)
+
+def page_crm_kb():
+    from modules.crm_pages import render_knowledge_base
+    render_knowledge_base(get_user())
+
+def page_crm_notif():
+    from modules.crm_pages import render_notifications
+    render_notifications(get_user())
+
+def page_crm_calendar():
+    from modules.crm_pages import render_calendar
+    render_calendar(get_user())
+
+def page_crm_timeline():
+    from modules.crm_pages import render_timeline_view
+    render_timeline_view(get_user())
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ROUTER
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
@@ -1455,6 +1521,18 @@ def main():
         from modules.db import update_presence
         update_presence(get_user())
     except: pass
+    # Proses aksi drag & drop / klik kartu dari Kanban Board (query param)
+    try:
+        from modules.crm_pages import handle_kanban_query_actions
+        handle_kanban_query_actions(get_user())
+    except: pass
+    # Handle CRM view navigation dari crm_pages
+    if st.session_state.get("crm_view") == "detail":
+        st.session_state.page = "crm_detail"
+        del st.session_state["crm_view"]
+    elif st.session_state.get("crm_view") == "kanban":
+        st.session_state.page = "crm_kanban"
+        del st.session_state["crm_view"]
     render_sidebar()
     p=st.session_state.page
     if p=="dashboard": page_dashboard()
@@ -1471,6 +1549,15 @@ def main():
     elif p=="users": page_users()
     elif p=="branches": page_branches()
     elif p=="build_history": page_build_history()
+    elif p=="crm_dashboard": page_crm_dashboard()
+    elif p=="crm_kanban": page_crm_kanban()
+    elif p=="crm_table": page_crm_table()
+    elif p=="crm_new": page_crm_new()
+    elif p=="crm_detail": page_crm_detail()
+    elif p=="crm_kb": page_crm_kb()
+    elif p=="crm_notif": page_crm_notif()
+    elif p=="crm_calendar": page_crm_calendar()
+    elif p=="crm_timeline": page_crm_timeline()
     else: page_dashboard()
 
 main()

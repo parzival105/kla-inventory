@@ -173,3 +173,39 @@ def get_build_history(user_id=None, limit=50):
     if user_id: params["user_id"] = f"eq.{user_id}"
     try: return _get("build_history", params)
     except: return []
+
+# ── Stock Request ─────────────────────────────────────────────────────────────
+def create_stock_request(user_id, username, full_name, branch, branch_name, 
+                          product_name, qty, reason, priority):
+    from datetime import datetime
+    return _post("stock_requests", {
+        "user_id": user_id,
+        "username": username,
+        "full_name": full_name,
+        "branch": branch,
+        "branch_name": branch_name,
+        "product_name": product_name,
+        "qty": qty,
+        "reason": reason,
+        "priority": priority,
+        "status": "pending",
+        "created_at": datetime.utcnow().isoformat() + "Z"
+    })
+
+def get_stock_requests(branch=None, status=None, limit=50):
+    params = {"order":"created_at.desc","limit":str(limit),"select":"*"}
+    if branch: params["branch"] = f"eq.{branch}"
+    if status: params["status"] = f"eq.{status}"
+    try: return _get("stock_requests", params)
+    except: return []
+
+def update_stock_request_status(req_id, status, note=""):
+    from datetime import datetime
+    try:
+        _patch("stock_requests", {"id": str(req_id)}, {
+            "status": status,
+            "admin_note": note,
+            "updated_at": datetime.utcnow().isoformat() + "Z"
+        })
+        return True
+    except: return False

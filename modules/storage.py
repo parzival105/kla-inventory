@@ -17,6 +17,16 @@ def download(path):
     if r.status_code==404: return None
     r.raise_for_status(); return r.content
 
+def delete(path):
+    url=f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{path}"
+    try:
+        r=requests.delete(url,headers=_sh(),timeout=30)
+        return r.status_code in (200,204)
+    except: return False
+
+def public_url(path):
+    return f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET}/{path}"
+
 def save_analysis(analysis):
     def _j(df):
         if df is None or (hasattr(df,"empty") and df.empty): return "[]"
