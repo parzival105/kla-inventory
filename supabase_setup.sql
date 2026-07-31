@@ -339,3 +339,121 @@ CREATE POLICY "sa" ON project_logs FOR ALL USING (true);
 -- dokumen project akan disimpan di path crm_docs/{project_id}/{filename}
 
 SELECT 'Project Request Management add-on (documents, notifications, logs) created!' AS status;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- PRMS — Product Request Management System (modul baru, menggantikan alur lama)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- Izinkan role baru: product_manager, admin_purchasing, management
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN
+  ('super_admin','area_manager','store_leader','sales','product_manager','admin_purchasing','management'));
+
+CREATE TABLE IF NOT EXISTS prms_requests (
+  id                  BIGSERIAL PRIMARY KEY,
+  request_number      TEXT UNIQUE NOT NULL,
+  customer_name       TEXT NOT NULL,
+  branch              TEXT NOT NULL,
+  branch_name         TEXT,
+  sales_id            BIGINT REFERENCES users(id),
+  sales_name          TEXT,
+  request_date        DATE DEFAULT CURRENT_DATE,
+  product_name        TEXT NOT NULL,
+  brand               TEXT,
+  part_number         TEXT,
+  category            TEXT,
+  qty                 INT DEFAULT 1,
+  budget_customer      NUMERIC DEFAULT 0,
+  ref_link            TEXT,
+  customer_note       TEXT,
+  urgency             TEXT DEFAULT 'Medium',
+  status              TEXT NOT NULL DEFAULT 'draft',
+  -- Store Leader review
+  reject_reason       TEXT,
+  -- PM review — produk ready
+  pm_supplier         TEXT, pm_cost_price NUMERIC, pm_sell_price NUMERIC,
+  pm_eta              TEXT, pm_supplier_stock TEXT,
+  -- PM review — EOL / replacement
+  repl_product_name   TEXT, repl_brand TEXT, repl_part_number TEXT, repl_spec TEXT,
+  repl_reason         TEXT, repl_price NUMERIC, repl_price_diff NUMERIC,
+  -- PM review — tidak ditemukan
+  unable_reason       TEXT,
+  -- Admin Purchasing
+  pur_supplier        TEXT, pur_stock TEXT, pur_eta TEXT, pur_price NUMERIC, pur_po_number TEXT,
+  -- Sales offer
+  deal_qty            INT, deal_price NUMERIC, deal_est_closing DATE,
+  nodeal_reason       TEXT, nodeal_note TEXT,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prms_history (
+  id            BIGSERIAL PRIMARY KEY,
+  request_id    BIGINT NOT NULL REFERENCES prms_requests(id) ON DELETE CASCADE,
+  actor         TEXT,
+  action        TEXT NOT NULL,
+  note          TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prms_notifications (
+  id            BIGSERIAL PRIMARY KEY,
+  request_id    BIGINT REFERENCES prms_requests(id) ON DELETE CASCADE,
+  target_role   TEXT,
+  branch        TEXT,
+  notif_type    TEXT NOT NULL,
+  message       TEXT NOT NULL,
+  is_read       BOOLEAN DEFAULT false,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prms_master_brand (
+  id BIGSERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, is_active BOOLEAN DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS prms_master_category (
+  id BIGSERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, is_active BOOLEAN DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS prms_master_supplier (
+  id BIGSERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, contact TEXT, note TEXT, is_active BOOLEAN DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS prms_master_reject_reason (
+  id BIGSERIAL PRIMARY KEY, reason TEXT UNIQUE NOT NULL, is_active BOOLEAN DEFAULT true
+);
+CREATE TABLE IF NOT EXISTS prms_master_nodeal_reason (
+  id BIGSERIAL PRIMARY KEY, reason TEXT UNIQUE NOT NULL, is_active BOOLEAN DEFAULT true
+);
+
+INSERT INTO prms_master_nodeal_reason (reason) VALUES
+  ('Harga terlalu mahal'),('Customer batal beli'),('Customer membeli di tempat lain'),
+  ('Barang terlalu lama datang'),('Produk tidak sesuai'),('Customer tidak jadi rakit'),
+  ('Budget kurang'),('Spesifikasi berubah'),('Lainnya')
+ON CONFLICT (reason) DO NOTHING;
+
+ALTER TABLE prms_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_master_brand ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_master_category ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_master_supplier ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_master_reject_reason ENABLE ROW LEVEL SECURITY;
+ALTER TABLE prms_master_nodeal_reason ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "sa" ON prms_requests;
+DROP POLICY IF EXISTS "sa" ON prms_history;
+DROP POLICY IF EXISTS "sa" ON prms_notifications;
+DROP POLICY IF EXISTS "sa" ON prms_master_brand;
+DROP POLICY IF EXISTS "sa" ON prms_master_category;
+DROP POLICY IF EXISTS "sa" ON prms_master_supplier;
+DROP POLICY IF EXISTS "sa" ON prms_master_reject_reason;
+DROP POLICY IF EXISTS "sa" ON prms_master_nodeal_reason;
+
+CREATE POLICY "sa" ON prms_requests FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_history FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_notifications FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_master_brand FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_master_category FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_master_supplier FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_master_reject_reason FOR ALL USING (true);
+CREATE POLICY "sa" ON prms_master_nodeal_reason FOR ALL USING (true);
+
+SELECT 'PRMS (Product Request Management System) tables created!' AS status;

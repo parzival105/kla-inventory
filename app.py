@@ -193,25 +193,61 @@ def render_sidebar():
                              type="primary" if cur==key else "secondary"):
                     go(key)
 
-        # CRM
-        crm_keys=["crm_dashboard","crm_kanban","crm_table","crm_new","crm_kb","crm_notif","crm_calendar","crm_timeline"]
-        crm_active=cur in crm_keys or cur.startswith("crm_")
+        # CRM (lama) — digantikan oleh PRMS di bawah, disembunyikan dari menu.
+        # Set SHOW_LEGACY_CRM=True kalau modul lama masih ingin diakses.
+        SHOW_LEGACY_CRM = False
+        if SHOW_LEGACY_CRM:
+            crm_keys=["crm_dashboard","crm_kanban","crm_table","crm_new","crm_kb","crm_notif","crm_calendar","crm_timeline"]
+            crm_active=cur in crm_keys or cur.startswith("crm_")
+            try:
+                from modules.crm_db import get_notifications
+                _unread_count = len(get_notifications(unread_only=True, limit=200))
+            except Exception:
+                _unread_count = 0
+            crm_title = "🎯 Project CRM" + (f" 🔴{_unread_count}" if _unread_count else "")
+            with st.expander(crm_title+(" ◀" if crm_active else ""),expanded=crm_active):
+                crm_items=[("crm_dashboard","📊 Dashboard CRM"),("crm_kanban","🗂️ Kanban Board"),
+                           ("crm_table","📋 Daftar Project"),("crm_calendar","📅 Calendar"),
+                           ("crm_timeline","📈 Timeline View"),("crm_new","➕ Project Baru"),
+                           ("crm_kb","🧠 Knowledge Base"),
+                           ("crm_notif",f"🔔 Notifikasi{' ('+str(_unread_count)+')' if _unread_count else ''}")]
+                for key,label in crm_items:
+                    if st.button(label,key="nav_"+key,use_container_width=True,
+                                 type="primary" if cur==key else "secondary"):
+                        go(key)
+
+        # PRMS
+        role = user["role"]
+        prms_keys=["prms_dashboard","prms_new","prms_my_drafts","prms_leader_review","prms_pm_review",
+                   "prms_purchasing","prms_leader_check","prms_sales_offer","prms_all","prms_notif","prms_master","prms_reports"]
+        prms_active = cur in prms_keys
         try:
-            from modules.crm_db import get_notifications
-            _unread_count = len(get_notifications(unread_only=True, limit=200))
+            from modules.prms_db import get_notifications as _prms_get_notif
+            _prms_branch = user.get("branch") if role=="store_leader" else None
+            _prms_unread = len(_prms_get_notif(role=role, branch=_prms_branch, unread_only=True))
         except Exception:
-            _unread_count = 0
-        crm_title = "🎯 Project CRM" + (f" 🔴{_unread_count}" if _unread_count else "")
-        with st.expander(crm_title+(" ◀" if crm_active else ""),expanded=crm_active):
-            crm_items=[("crm_dashboard","📊 Dashboard CRM"),("crm_kanban","🗂️ Kanban Board"),
-                       ("crm_table","📋 Daftar Project"),("crm_calendar","📅 Calendar"),
-                       ("crm_timeline","📈 Timeline View"),("crm_new","➕ Project Baru"),
-                       ("crm_kb","🧠 Knowledge Base"),
-                       ("crm_notif",f"🔔 Notifikasi{' ('+str(_unread_count)+')' if _unread_count else ''}")]
-            for key,label in crm_items:
+            _prms_unread = 0
+        prms_title = "📦 PRMS" + (f" 🔴{_prms_unread}" if _prms_unread else "")
+        with st.expander(prms_title+(" ◀" if prms_active else ""), expanded=prms_active):
+            prms_items=[("prms_dashboard","📊 Dashboard")]
+            if role in ("sales","super_admin"):
+                prms_items += [("prms_new","➕ Request Baru"),("prms_my_drafts","📝 Draft Saya"),
+                                ("prms_sales_offer","💬 Sales Offer")]
+            if role in ("store_leader","area_manager","super_admin"):
+                prms_items += [("prms_leader_review","🔎 Approval Request"),("prms_leader_check","🔎 Store Leader Check")]
+            if role in ("product_manager","super_admin"):
+                prms_items += [("prms_pm_review","🔬 Review Produk")]
+            if role in ("admin_purchasing","super_admin"):
+                prms_items += [("prms_purchasing","📦 Antrian Purchasing")]
+            prms_items += [("prms_all","📋 Semua Request"),
+                            ("prms_notif",f"🔔 Notifikasi{' ('+str(_prms_unread)+')' if _prms_unread else ''}")]
+            if role == "super_admin":
+                prms_items += [("prms_master","🗄️ Master Data")]
+            prms_items += [("prms_reports","📑 Laporan")]
+            for key,label in prms_items:
                 if st.button(label,key="nav_"+key,use_container_width=True,
                              type="primary" if cur==key else "secondary"):
-                    go(key)
+                    st.session_state["prms_view"]="list"; go(key)
 
         # Pengaturan
         if is_leader():
@@ -1497,6 +1533,64 @@ def page_crm_timeline():
     from modules.crm_pages import render_timeline_view
     render_timeline_view(get_user())
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PRMS PAGES — Product Request Management System
+# ══════════════════════════════════════════════════════════════════════════════
+def page_prms_dashboard():
+    from modules.prms_pages import render_dashboard
+    render_dashboard(get_user())
+
+def page_prms_new():
+    user = get_user()
+    if user["role"] not in ("sales","super_admin"):
+        st.error("Hanya Sales yang dapat membuat request"); return
+    from modules.prms_pages import render_new_request
+    render_new_request(user)
+
+def _page_prms_queue(queue, title):
+    user = get_user()
+    if st.session_state.get("prms_view") == "detail":
+        page_prms_detail(); return
+    from modules.prms_pages import render_list
+    render_list(user, queue=queue, title=title)
+
+def page_prms_my_drafts():
+    _page_prms_queue("sales_draft", "📝 Draft Saya")
+
+def page_prms_leader_review():
+    _page_prms_queue("leader_review", "🔎 Menunggu Approval Store Leader")
+
+def page_prms_pm_review():
+    _page_prms_queue("pm_review", "🔬 Menunggu Review Product Manager")
+
+def page_prms_purchasing():
+    _page_prms_queue("purchasing_queue", "📦 Antrian Admin Purchasing")
+
+def page_prms_leader_check():
+    _page_prms_queue("leader_check", "🔎 Store Leader Check")
+
+def page_prms_sales_offer():
+    _page_prms_queue("sales_offer", "💬 Sales Offer")
+
+def page_prms_all():
+    _page_prms_queue(None, "📋 Semua Request")
+
+def page_prms_detail():
+    from modules.prms_pages import render_detail
+    render_detail(get_user())
+
+def page_prms_notif():
+    from modules.prms_pages import render_notifications
+    render_notifications(get_user())
+
+def page_prms_master():
+    from modules.prms_pages import render_master_data
+    render_master_data(get_user())
+
+def page_prms_reports():
+    from modules.prms_pages import render_reports
+    render_reports(get_user())
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ROUTER
@@ -1558,6 +1652,18 @@ def main():
     elif p=="crm_notif": page_crm_notif()
     elif p=="crm_calendar": page_crm_calendar()
     elif p=="crm_timeline": page_crm_timeline()
+    elif p=="prms_dashboard": page_prms_dashboard()
+    elif p=="prms_new": page_prms_new()
+    elif p=="prms_my_drafts": page_prms_my_drafts()
+    elif p=="prms_leader_review": page_prms_leader_review()
+    elif p=="prms_pm_review": page_prms_pm_review()
+    elif p=="prms_purchasing": page_prms_purchasing()
+    elif p=="prms_leader_check": page_prms_leader_check()
+    elif p=="prms_sales_offer": page_prms_sales_offer()
+    elif p=="prms_all": page_prms_all()
+    elif p=="prms_notif": page_prms_notif()
+    elif p=="prms_master": page_prms_master()
+    elif p=="prms_reports": page_prms_reports()
     else: page_dashboard()
 
 main()

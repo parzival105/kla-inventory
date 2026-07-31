@@ -321,6 +321,14 @@ def render_table(user):
 # ══════════════════════════════════════════════════════════════════════════════
 def render_new_project(user):
     st.title("➕ Buat Project Baru")
+    user_branch = user.get("branch") or ""
+    sel_branch = user_branch
+    if not user_branch:
+        st.info("Akun Bapak tidak terikat ke satu cabang — pilih cabang untuk project ini.")
+        from modules.config import ALL_BRANCHES
+        sel_branch = st.selectbox("Cabang *", ALL_BRANCHES,
+                                   format_func=lambda c: f"{c} — {BRANCH_FULL.get(c,c)}",
+                                   key="np_branch")
     with st.form("new_project"):
         st.subheader("Data Customer")
         c1,c2 = st.columns(2)
@@ -368,6 +376,9 @@ def render_new_project(user):
         if not cust_name or not product_name:
             st.error("Nama customer dan nama produk wajib diisi")
             return
+        if not sel_branch:
+            st.error("Cabang wajib dipilih")
+            return
         try:
             proj = create_project({
                 "customer_name": cust_name,
@@ -375,8 +386,8 @@ def render_new_project(user):
                 "customer_pic": cust_pic,
                 "customer_phone": cust_phone,
                 "customer_email": cust_email,
-                "branch": user.get("branch",""),
-                "branch_name": BRANCH_FULL.get(user.get("branch",""),""),
+                "branch": sel_branch,
+                "branch_name": BRANCH_FULL.get(sel_branch,""),
                 "sales_id": user["id"],
                 "sales_name": user["full_name"],
                 "estimated_value": est_value,
