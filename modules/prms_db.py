@@ -30,7 +30,7 @@ def generate_request_number():
             n = 1
     except Exception:
         n = 1
-    return f"PRMS-{n:06d}"
+    return f"PR-{n:06d}"
 
 # ── History / audit trail ────────────────────────────────────────────────────
 def log_history(request_id, actor, action, note=""):

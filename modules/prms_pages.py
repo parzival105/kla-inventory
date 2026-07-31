@@ -47,7 +47,7 @@ def _fmt(n):
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 def render_dashboard(user):
-    st.title("📦 Product Request Management System")
+    st.title("📦 Project Request")
     branch, _ = _my_scope(user)
     stats = get_dashboard_stats(branch=branch)
 
@@ -126,7 +126,7 @@ def render_dashboard(user):
 # NEW REQUEST (Sales)
 # ══════════════════════════════════════════════════════════════════════════════
 def render_new_request(user):
-    st.title("➕ Buat Product Request")
+    st.title("➕ Buat Project Request")
     user_branch = user.get("branch") or ""
     sel_branch = user_branch
     if not user_branch:
@@ -606,7 +606,7 @@ def _build_report_pdf(df, user):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=1.5*cm, bottomMargin=1.5*cm)
     styles = getSampleStyleSheet()
-    elems = [Paragraph("Laporan PRMS — Product Request Management System", styles["Title"]),
+    elems = [Paragraph("Laporan Project Request", styles["Title"]),
              Paragraph(f"Digenerate: {datetime.now().strftime('%d %B %Y %H:%M')} oleh {user['full_name']}", styles["Normal"]),
              Spacer(1, 12)]
     cols = ["request_number","customer_name","product_name","status","branch"]

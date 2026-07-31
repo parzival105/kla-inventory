@@ -227,7 +227,7 @@ def render_sidebar():
             _prms_unread = len(_prms_get_notif(role=role, branch=_prms_branch, unread_only=True))
         except Exception:
             _prms_unread = 0
-        prms_title = "📦 PRMS" + (f" 🔴{_prms_unread}" if _prms_unread else "")
+        prms_title = "📦 Project Request" + (f" 🔴{_prms_unread}" if _prms_unread else "")
         with st.expander(prms_title+(" ◀" if prms_active else ""), expanded=prms_active):
             prms_items=[("prms_dashboard","📊 Dashboard")]
             if role in ("sales","super_admin"):
