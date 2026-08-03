@@ -1547,33 +1547,40 @@ def page_prms_new():
     from modules.prms_pages import render_new_request
     render_new_request(user)
 
-def _page_prms_queue(queue, title):
+def _page_prms_request_list(status_filter, title):
     user = get_user()
     if st.session_state.get("prms_view") == "detail":
         page_prms_detail(); return
-    from modules.prms_pages import render_list
-    render_list(user, queue=queue, title=title)
+    from modules.prms_pages import render_request_list
+    render_request_list(user, status_filter=status_filter, title=title)
+
+def _page_prms_item_queue(queue, title):
+    user = get_user()
+    if st.session_state.get("prms_view") == "detail":
+        page_prms_detail(); return
+    from modules.prms_pages import render_item_queue
+    render_item_queue(user, queue=queue, title=title)
 
 def page_prms_my_drafts():
-    _page_prms_queue("sales_draft", "📝 Draft Saya")
+    _page_prms_request_list("draft", "📝 Draft Saya")
 
 def page_prms_leader_review():
-    _page_prms_queue("leader_review", "🔎 Menunggu Approval Store Leader")
+    _page_prms_request_list("submitted", "🔎 Menunggu Approval Store Leader")
 
 def page_prms_pm_review():
-    _page_prms_queue("pm_review", "🔬 Menunggu Review Product Manager")
+    _page_prms_item_queue("pm_review", "🔬 Menunggu Review Product Manager")
 
 def page_prms_purchasing():
-    _page_prms_queue("purchasing_queue", "📦 Antrian Admin Purchasing")
+    _page_prms_item_queue("purchasing_queue", "📦 Antrian Admin Purchasing")
 
 def page_prms_leader_check():
-    _page_prms_queue("leader_check", "🔎 Store Leader Check")
+    _page_prms_item_queue("leader_check", "🔎 Store Leader Check")
 
 def page_prms_sales_offer():
-    _page_prms_queue("sales_offer", "💬 Sales Offer")
+    _page_prms_item_queue("sales_offer", "💬 Sales Offer")
 
 def page_prms_all():
-    _page_prms_queue(None, "📋 Semua Request")
+    _page_prms_request_list(None, "📋 Semua Request")
 
 def page_prms_detail():
     from modules.prms_pages import render_detail

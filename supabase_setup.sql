@@ -457,3 +457,46 @@ CREATE POLICY "sa" ON prms_master_reject_reason FOR ALL USING (true);
 CREATE POLICY "sa" ON prms_master_nodeal_reason FOR ALL USING (true);
 
 SELECT 'PRMS (Product Request Management System) tables created!' AS status;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- PROJECT REQUEST — multi-produk per request (keranjang produk)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+-- prms_requests sekarang jadi "parent" (data customer), produk dipindah ke item
+ALTER TABLE prms_requests ALTER COLUMN product_name DROP NOT NULL;
+
+CREATE TABLE IF NOT EXISTS prms_request_items (
+  id                  BIGSERIAL PRIMARY KEY,
+  request_id          BIGINT NOT NULL REFERENCES prms_requests(id) ON DELETE CASCADE,
+  product_name        TEXT NOT NULL,
+  brand               TEXT, part_number TEXT, category TEXT,
+  qty                 INT DEFAULT 1,
+  budget_customer     NUMERIC DEFAULT 0,
+  ref_link            TEXT,
+  urgency             TEXT DEFAULT 'Medium',
+  status              TEXT NOT NULL DEFAULT 'waiting_product_review',
+  -- PM review — produk ready
+  pm_supplier TEXT, pm_cost_price NUMERIC, pm_sell_price NUMERIC, pm_eta TEXT, pm_supplier_stock TEXT,
+  -- PM review — EOL / replacement
+  repl_product_name TEXT, repl_brand TEXT, repl_part_number TEXT, repl_spec TEXT,
+  repl_reason TEXT, repl_price NUMERIC, repl_price_diff NUMERIC,
+  -- PM review — tidak ditemukan
+  unable_reason TEXT,
+  -- Admin Purchasing
+  pur_supplier TEXT, pur_stock TEXT, pur_eta TEXT, pur_price NUMERIC, pur_po_number TEXT,
+  -- Sales offer
+  deal_qty INT, deal_price NUMERIC, deal_est_closing DATE,
+  nodeal_reason TEXT, nodeal_note TEXT,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Kaitkan history & notifikasi ke item spesifik (nullable — tetap kompatibel dengan yang lama)
+ALTER TABLE prms_history ADD COLUMN IF NOT EXISTS item_id BIGINT;
+ALTER TABLE prms_notifications ADD COLUMN IF NOT EXISTS item_id BIGINT;
+
+ALTER TABLE prms_request_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "sa" ON prms_request_items;
+CREATE POLICY "sa" ON prms_request_items FOR ALL USING (true);
+
+SELECT 'Project Request multi-produk (prms_request_items) created!' AS status;
