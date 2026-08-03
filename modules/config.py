@@ -53,7 +53,7 @@ AREA_MAP        = _bc[2]
 BRANCH_TO_AREA  = _bc[3]
 EXCLUDED_BRANCH_COLS = ["HO"]
 ROLE_LABELS = {"super_admin":"Super Admin","area_manager":"Area Manager","store_leader":"Store Leader","sales":"Sales",
-               "product_manager":"Product Manager","admin_purchasing":"Admin Purchasing","management":"Management (View Only)"}
+               "admin_purchasing":"Admin Purchasing","management":"Management (View Only)"}
 CATEGORY_THRESHOLDS = [("Very Fast",25,float("inf"),2.0),("Fast",15,25,1.5),("Slow",4,15,1.0),("Dead Stock",0,4,0.0)]
 DEAD_STOCK_BUCKETS = [(3,6,"Turunkan ke HD","Stok 3-6 bulan"),(6,12,"Bundling","Stok 6-12 bulan"),(12,float("inf"),"Clearance","Stok >12 bulan")]
 COLUMN_ALIASES = {

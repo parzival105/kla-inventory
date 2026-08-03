@@ -218,7 +218,7 @@ def render_sidebar():
 
         # PRMS
         role = user["role"]
-        prms_keys=["prms_dashboard","prms_new","prms_my_drafts","prms_leader_review","prms_pm_review",
+        prms_keys=["prms_dashboard","prms_new","prms_my_drafts","prms_leader_review",
                    "prms_purchasing","prms_leader_check","prms_sales_offer","prms_all","prms_notif","prms_master","prms_reports"]
         prms_active = cur in prms_keys
         try:
@@ -235,8 +235,6 @@ def render_sidebar():
                                 ("prms_sales_offer","💬 Sales Offer")]
             if role in ("store_leader","area_manager","super_admin"):
                 prms_items += [("prms_leader_review","🔎 Approval Request"),("prms_leader_check","🔎 Store Leader Check")]
-            if role in ("product_manager","super_admin"):
-                prms_items += [("prms_pm_review","🔬 Review Produk")]
             if role in ("admin_purchasing","super_admin"):
                 prms_items += [("prms_purchasing","📦 Antrian Purchasing")]
             prms_items += [("prms_all","📋 Semua Request"),
@@ -1567,9 +1565,6 @@ def page_prms_my_drafts():
 def page_prms_leader_review():
     _page_prms_request_list("submitted", "🔎 Menunggu Approval Store Leader")
 
-def page_prms_pm_review():
-    _page_prms_item_queue("pm_review", "🔬 Menunggu Review Product Manager")
-
 def page_prms_purchasing():
     _page_prms_item_queue("purchasing_queue", "📦 Antrian Admin Purchasing")
 
@@ -1663,7 +1658,6 @@ def main():
     elif p=="prms_new": page_prms_new()
     elif p=="prms_my_drafts": page_prms_my_drafts()
     elif p=="prms_leader_review": page_prms_leader_review()
-    elif p=="prms_pm_review": page_prms_pm_review()
     elif p=="prms_purchasing": page_prms_purchasing()
     elif p=="prms_leader_check": page_prms_leader_check()
     elif p=="prms_sales_offer": page_prms_sales_offer()

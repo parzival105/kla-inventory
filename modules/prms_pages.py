@@ -9,8 +9,7 @@ from modules.prms_db import (
     create_request, submit_request, get_request, get_requests, get_items, get_item,
     get_history, get_item_queue,
     store_leader_approve, store_leader_reject,
-    pm_product_found, pm_replacement, pm_unable_to_source,
-    purchasing_ready, store_leader_forward, sales_deal, sales_no_deal,
+    purchasing_found, purchasing_unable, store_leader_set_price, sales_deal, sales_no_deal,
     get_notifications, mark_notification_read, mark_all_notifications_read,
     get_master, add_master, update_master, delete_master,
     get_dashboard_stats,
@@ -24,7 +23,6 @@ NODEAL_REASONS_FALLBACK = ["Harga terlalu mahal","Customer batal beli","Customer
 # ── Role helpers ──────────────────────────────────────────────────────────────
 def is_sales(u):     return u["role"] in ("sales",)
 def is_leader(u):    return u["role"] in ("store_leader","area_manager","super_admin")
-def is_pm(u):        return u["role"] in ("product_manager","super_admin")
 def is_purchasing(u):return u["role"] in ("admin_purchasing","super_admin")
 def is_view_only(u): return u["role"] == "management"
 def can_manage_master(u): return u["role"] == "super_admin"
@@ -60,12 +58,12 @@ def render_dashboard(user):
         ("Total Request", stats["total"], "#a855f7"),
         ("Total Produk", stats["total_items"], "#6366f1"),
         ("Waiting Approval", stats["waiting_approval"], "#3b82f6"),
-        ("Waiting PM", stats["waiting_pm"], "#8b5cf6"),
         ("Waiting Purchasing", stats["waiting_purchasing"], "#06b6d4"),
+        ("Waiting Leader Check", stats["waiting_leader_check"], "#f59e0b"),
         ("Ready to Offer", stats["ready_to_offer"], "#eab308"),
         ("Deal", stats["deal"], "#22c55e"),
         ("No Deal", stats["no_deal"], "#ef4444"),
-        ("Replacement / EOL Product", stats["replacement"], "#f97316"),
+        ("Unable to Source", stats["unable"], "#f97316"),
     ]
     cols = st.columns(3)
     for i, (label, val, color) in enumerate(cards):
@@ -226,8 +224,7 @@ def render_new_request(user):
 # DAFTAR / ANTRIAN
 # ══════════════════════════════════════════════════════════════════════════════
 QUEUE_ITEM_STATUS = {
-    "pm_review":        ["waiting_product_review"],
-    "purchasing_queue": ["product_found","replacement_suggested"],
+    "purchasing_queue": ["waiting_purchasing"],
     "leader_check":     ["store_leader_check"],
     "sales_offer":      ["sales_offer"],
 }
@@ -424,70 +421,44 @@ def _render_item_card(user, it):
     with c3:
         if it.get("ref_link"): st.caption(f"Referensi: {it['ref_link']}")
 
-    # 3. PM review
-    if status == "waiting_product_review" and is_pm(user):
-        choice = st.radio("Hasil Review", ["Produk Ready","Produk EOL (End Of Life)","Produk Tidak Ditemukan"], key=f"pm_choice_{item_id}")
-        if choice == "Produk Ready":
+    # 3. Admin Purchasing — cari unit, langsung tawarkan ke Sales
+    if status == "waiting_purchasing" and is_purchasing(user):
+        choice = st.radio("Hasil Pencarian Unit", ["Unit Ditemukan","Tidak Ditemukan"], key=f"pur_choice_{item_id}")
+        if choice == "Unit Ditemukan":
             suppliers = [s["name"] for s in get_master("supplier")]
-            with st.form(f"pm_ready_form_{item_id}"):
+            with st.form(f"purchasing_found_form_{item_id}"):
                 supplier = st.selectbox("Supplier", suppliers) if suppliers else st.text_input("Supplier")
                 c1, c2 = st.columns(2)
-                with c1: cost = st.number_input("Harga Modal (Rp)", min_value=0, step=10000); eta = st.text_input("Estimasi Datang")
-                with c2: sell = st.number_input("Harga Jual (Rp)", min_value=0, step=10000); stock = st.text_input("Stock Supplier")
-                if st.form_submit_button("✅ Simpan — Product Found", type="primary"):
-                    pm_product_found(item_id, user["full_name"], supplier, cost, sell, eta, stock)
-                    st.success("Produk ditandai ready"); st.rerun()
-        elif choice == "Produk EOL (End Of Life)":
-            with st.form(f"pm_eol_form_{item_id}"):
-                c1, c2 = st.columns(2)
-                with c1:
-                    rname = st.text_input("Nama Produk Pengganti *"); rbrand = st.text_input("Brand"); rpn = st.text_input("Part Number")
-                with c2:
-                    rspec = st.text_area("Spesifikasi"); rreason = st.text_area("Alasan Penggantian")
-                c1, c2 = st.columns(2)
-                with c1: rprice = st.number_input("Harga (Rp)", min_value=0, step=10000)
-                with c2: rdiff = st.number_input("Selisih Harga (Rp)", step=10000)
-                if st.form_submit_button("🔁 Simpan — Replacement Suggested", type="primary"):
-                    if not rname: st.error("Nama produk pengganti wajib diisi")
-                    else:
-                        pm_replacement(item_id, user["full_name"], rname, rbrand, rpn, rspec, rreason, rprice, rdiff)
-                        st.success("Produk pengganti diusulkan"); st.rerun()
+                with c1: price = st.number_input("Harga (Rp)", min_value=0, step=10000); stock = st.text_input("Stock")
+                with c2: eta = st.text_input("ETA"); po = st.text_input("Nomor PO (Opsional)")
+                if st.form_submit_button("💬 Simpan — Siap Ditawarkan ke Sales", type="primary"):
+                    purchasing_found(item_id, user["full_name"], supplier, price, stock, eta, po)
+                    st.success("Unit ditemukan — sales bisa langsung menawarkan"); st.rerun()
         else:
-            with st.form(f"pm_unable_form_{item_id}"):
+            with st.form(f"purchasing_unable_form_{item_id}"):
                 reason = st.text_area("Alasan *")
                 if st.form_submit_button("🚫 Simpan — Unable to Source", type="primary"):
                     if not reason: st.error("Alasan wajib diisi")
                     else:
-                        pm_unable_to_source(item_id, user["full_name"], reason)
+                        purchasing_unable(item_id, user["full_name"], reason)
                         st.success("Ditandai tidak ditemukan"); st.rerun()
 
-    # 4. Admin Purchasing
-    elif status in ("product_found","replacement_suggested") and is_purchasing(user):
-        if status == "product_found":
-            st.info(f"Supplier PM: {it.get('pm_supplier','-')} | Modal: {_fmt(it.get('pm_cost_price',0))} | Jual: {_fmt(it.get('pm_sell_price',0))}")
-        else:
-            st.info(f"Produk pengganti: {it.get('repl_product_name','-')} ({it.get('repl_brand','-')})")
-        suppliers = [s["name"] for s in get_master("supplier")]
-        with st.form(f"purchasing_form_{item_id}"):
-            supplier = st.selectbox("Supplier", suppliers) if suppliers else st.text_input("Supplier")
-            c1, c2 = st.columns(2)
-            with c1: stock = st.text_input("Stock"); price = st.number_input("Harga (Rp)", min_value=0, step=10000)
-            with c2: eta = st.text_input("ETA"); po = st.text_input("Nomor PO (Opsional)")
-            if st.form_submit_button("📦 Ready for Sales", type="primary"):
-                purchasing_ready(item_id, user["full_name"], supplier, stock, eta, price, po)
-                st.success("Ditandai siap — menunggu pengecekan Store Leader"); st.rerun()
-
-    # 5. Store Leader check → forward to sales
+    # 4. Store Leader check — cek unit, boleh set harga jual berbeda dari Purchasing
     elif status == "store_leader_check" and is_leader(user):
-        st.info(f"Purchasing — Supplier: {it.get('pur_supplier','-')} | Harga: {_fmt(it.get('pur_price',0))} | ETA: {it.get('pur_eta','-')} | Stock: {it.get('pur_stock','-')}")
-        if st.button("➡️ Forward to Sales", type="primary", key=f"fwd_{item_id}"):
-            store_leader_forward(item_id, user["full_name"])
-            st.success("Diteruskan ke Sales"); st.rerun()
+        st.info(f"Dari Purchasing — Supplier: {it.get('pur_supplier','-')} | Harga: {_fmt(it.get('pur_price',0))} | Stock: {it.get('pur_stock','-')} | ETA: {it.get('pur_eta','-')}")
+        with st.form(f"sl_price_form_{item_id}"):
+            sell_price = st.number_input("Harga Jual ke Customer (Rp)", min_value=0,
+                                          value=int(it.get("pur_price") or 0), step=10000,
+                                          help="Boleh disamakan atau diubah dari harga Purchasing")
+            note = st.text_area("Catatan (opsional)")
+            if st.form_submit_button("✅ Tetapkan Harga & Kirim ke Sales", type="primary"):
+                store_leader_set_price(item_id, user["full_name"], sell_price, note)
+                st.success("Harga ditetapkan — sales bisa langsung menawarkan"); st.rerun()
 
-    # 6. Sales offer: Deal / No Deal
+    # 5. Sales offer: Deal / No Deal
     elif status == "sales_offer" and (is_sales(user) or user["role"]=="super_admin"):
-        price_ref = it.get("pur_price") or it.get("pm_sell_price") or it.get("repl_price") or 0
-        st.info(f"Harga referensi: {_fmt(price_ref)}")
+        price_ref = it.get("sl_price") if it.get("sl_price") is not None else (it.get("pur_price") or 0)
+        st.info(f"Harga jual: {_fmt(price_ref)}  |  Supplier: {it.get('pur_supplier','-')}  |  ETA: {it.get('pur_eta','-')}")
         tab1, tab2 = st.tabs(["✅ Deal","❌ No Deal"])
         with tab1:
             with st.form(f"deal_form_{item_id}"):
@@ -634,7 +605,6 @@ def render_reports(user):
     per_sales = idf.groupby("sales_name").size().rename("Jumlah").reset_index()
     per_month = idf.assign(month=pd.to_datetime(idf["request_date"]).dt.strftime("%Y-%m")).groupby("month").size().rename("Jumlah").reset_index()
     deal_vs_nodeal = idf[idf["status"].isin(["won","lost"])].groupby("status").size().rename("Jumlah").reset_index()
-    eol_df = idf[idf["repl_product_name"].notna()][["request_number","product_name","repl_product_name","repl_brand","repl_reason"]]
     supplier_perf = idf[idf["pur_supplier"].notna()].groupby("pur_supplier").size().rename("Jumlah Request").reset_index()
 
     c1, c2 = st.columns(2)
@@ -654,7 +624,6 @@ def render_reports(user):
             per_sales.to_excel(writer, sheet_name="Per Sales", index=False)
             per_month.to_excel(writer, sheet_name="Per Bulan", index=False)
             deal_vs_nodeal.to_excel(writer, sheet_name="Deal vs No Deal", index=False)
-            eol_df.to_excel(writer, sheet_name="Produk EOL & Pengganti", index=False)
             supplier_perf.to_excel(writer, sheet_name="Supplier Performance", index=False)
         st.download_button("📊 Download Excel", data=buf.getvalue(), file_name="project_request_report.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)

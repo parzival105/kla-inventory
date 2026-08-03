@@ -500,3 +500,11 @@ DROP POLICY IF EXISTS "sa" ON prms_request_items;
 CREATE POLICY "sa" ON prms_request_items FOR ALL USING (true);
 
 SELECT 'Project Request multi-produk (prms_request_items) created!' AS status;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Store Leader bisa cek unit dari Purchasing & set harga jual sendiri
+-- ══════════════════════════════════════════════════════════════════════════════
+ALTER TABLE prms_request_items ADD COLUMN IF NOT EXISTS sl_price NUMERIC;
+ALTER TABLE prms_request_items ADD COLUMN IF NOT EXISTS sl_note TEXT;
+
+SELECT 'Store Leader price override (sl_price, sl_note) added!' AS status;

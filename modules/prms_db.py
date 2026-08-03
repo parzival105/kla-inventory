@@ -4,11 +4,9 @@ from datetime import datetime, date
 from modules.db import _get, _post, _patch, _delete
 
 ITEM_STATUSES = [
-    ("waiting_product_review",   "🔬 Waiting Product Review",    "#8b5cf6"),
-    ("product_found",            "✅ Product Found",             "#10b981"),
-    ("replacement_suggested",    "🔁 Replacement Suggested",     "#a855f7"),
-    ("unable_to_source",         "🚫 Unable to Source",          "#dc2626"),
+    ("waiting_purchasing",       "🔎 Waiting Purchasing",        "#8b5cf6"),
     ("store_leader_check",       "🔎 Store Leader Check",        "#f59e0b"),
+    ("unable_to_source",         "🚫 Unable to Source",          "#dc2626"),
     ("sales_offer",              "💬 Sales Offer",               "#eab308"),
     ("won",                      "🏆 Won",                       "#22c55e"),
     ("lost",                     "❌ Lost",                      "#ef4444"),
@@ -113,7 +111,7 @@ def create_request(parent_data, items, submit=False):
     for it in items:
         item_payload = dict(it)
         item_payload["request_id"] = req["id"]
-        item_payload["status"] = "waiting_product_review"
+        item_payload["status"] = "waiting_purchasing"
         item_payload["created_at"] = datetime.utcnow().isoformat() + "Z"
         item_payload["updated_at"] = datetime.utcnow().isoformat() + "Z"
         _post("prms_request_items", item_payload)
@@ -181,8 +179,8 @@ def store_leader_approve(request_id, actor):
     log_history(request_id, actor, "Disetujui Store Leader (seluruh request)")
     push_notification(request_id, "sales", req.get("branch"), "approved",
                        f"Request {req.get('request_number','')} disetujui Store Leader")
-    push_notification(request_id, "product_manager", req.get("branch"), "new_request",
-                       f"Request {req.get('request_number','')} menunggu review produk")
+    push_notification(request_id, "admin_purchasing", req.get("branch"), "new_request",
+                       f"Request {req.get('request_number','')} menunggu pencarian unit")
 
 def store_leader_reject(request_id, actor, reason):
     req = get_request(request_id)
@@ -191,55 +189,34 @@ def store_leader_reject(request_id, actor, reason):
     push_notification(request_id, "sales", req.get("branch"), "rejected",
                        f"Request {req.get('request_number','')} ditolak: {reason}")
 
-# ── 3. PM / Super Admin review — level ITEM (per produk) ──────────────────────
-def pm_product_found(item_id, actor, supplier, cost_price, sell_price, eta, stock):
-    item = get_item(item_id); req = get_request(item["request_id"])
-    _touch_item(item_id, {"status": "product_found", "pm_supplier": supplier,
-                          "pm_cost_price": cost_price, "pm_sell_price": sell_price,
-                          "pm_eta": eta, "pm_supplier_stock": stock})
-    log_history(item["request_id"], actor, "Produk ditemukan", f"{item.get('product_name','')} — Supplier: {supplier}", item_id=item_id)
-    push_notification(item["request_id"], "sales", req.get("branch"), "product_found",
-                       f"Produk '{item.get('product_name','')}' ditemukan ({req.get('request_number','')})", item_id=item_id)
-    push_notification(item["request_id"], "admin_purchasing", req.get("branch"), "to_process",
-                       f"Produk '{item.get('product_name','')}' siap diproses purchasing ({req.get('request_number','')})", item_id=item_id)
-
-def pm_replacement(item_id, actor, name, brand, part_number, spec, reason, price, price_diff):
-    item = get_item(item_id); req = get_request(item["request_id"])
-    _touch_item(item_id, {"status": "replacement_suggested", "repl_product_name": name,
-                          "repl_brand": brand, "repl_part_number": part_number, "repl_spec": spec,
-                          "repl_reason": reason, "repl_price": price, "repl_price_diff": price_diff})
-    log_history(item["request_id"], actor, "Produk EOL — pengganti diusulkan", f"{item.get('product_name','')} → {name} ({brand})", item_id=item_id)
-    push_notification(item["request_id"], "sales", req.get("branch"), "replacement_suggested",
-                       f"Produk pengganti tersedia untuk '{item.get('product_name','')}' ({req.get('request_number','')})", item_id=item_id)
-    push_notification(item["request_id"], "admin_purchasing", req.get("branch"), "to_process",
-                       f"Produk pengganti '{name}' siap diproses purchasing ({req.get('request_number','')})", item_id=item_id)
-
-def pm_unable_to_source(item_id, actor, reason):
-    item = get_item(item_id); req = get_request(item["request_id"])
-    _touch_item(item_id, {"status": "unable_to_source", "unable_reason": reason})
-    log_history(item["request_id"], actor, "Produk tidak ditemukan", f"{item.get('product_name','')} — {reason}", item_id=item_id)
-    push_notification(item["request_id"], "sales", req.get("branch"), "unable_to_source",
-                       f"Produk '{item.get('product_name','')}' tidak ditemukan: {reason}", item_id=item_id)
-    recompute_request_status(item["request_id"])
-
-# ── 4. Admin Purchasing — level ITEM ──────────────────────────────────────────
-def purchasing_ready(item_id, actor, supplier, stock, eta, price, po_number=""):
+# ── 3. Admin Purchasing — level ITEM (per produk): cari unit ──────────────────
+def purchasing_found(item_id, actor, supplier, price, stock, eta, po_number=""):
     item = get_item(item_id); req = get_request(item["request_id"])
     _touch_item(item_id, {"status": "store_leader_check", "pur_supplier": supplier,
-                          "pur_stock": stock, "pur_eta": eta, "pur_price": price, "pur_po_number": po_number})
-    log_history(item["request_id"], actor, "Ready for Sales (Purchasing)", f"{item.get('product_name','')} — Supplier: {supplier}, ETA: {eta}", item_id=item_id)
+                          "pur_price": price, "pur_stock": stock, "pur_eta": eta, "pur_po_number": po_number})
+    log_history(item["request_id"], actor, "Unit ditemukan — menunggu cek Store Leader", f"{item.get('product_name','')} — Supplier: {supplier}, Harga: {price}", item_id=item_id)
     push_notification(item["request_id"], "store_leader", req.get("branch"), "ready_to_check",
-                       f"Produk '{item.get('product_name','')}' siap dicek sebelum ke sales ({req.get('request_number','')})", item_id=item_id)
+                       f"Unit '{item.get('product_name','')}' siap dicek & ditentukan harga jualnya ({req.get('request_number','')})", item_id=item_id)
 
-# ── 5. Store Leader forward to sales — level ITEM ─────────────────────────────
-def store_leader_forward(item_id, actor):
+def purchasing_unable(item_id, actor, reason):
     item = get_item(item_id); req = get_request(item["request_id"])
-    _touch_item(item_id, {"status": "sales_offer"})
-    log_history(item["request_id"], actor, "Forward to Sales", item.get("product_name",""), item_id=item_id)
-    push_notification(item["request_id"], "sales", req.get("branch"), "ready_to_offer",
-                       f"Produk '{item.get('product_name','')}' siap ditawarkan ({req.get('request_number','')})", item_id=item_id)
+    _touch_item(item_id, {"status": "unable_to_source", "unable_reason": reason})
+    log_history(item["request_id"], actor, "Unit tidak ditemukan", f"{item.get('product_name','')} — {reason}", item_id=item_id)
+    push_notification(item["request_id"], "sales", req.get("branch"), "unable_to_source",
+                       f"Unit '{item.get('product_name','')}' tidak ditemukan: {reason}", item_id=item_id)
+    recompute_request_status(item["request_id"])
 
-# ── 6. Sales offer: Deal / No Deal — level ITEM ───────────────────────────────
+# ── 4. Store Leader check — cek unit, boleh set harga jual berbeda ────────────
+def store_leader_set_price(item_id, actor, sell_price, note=""):
+    item = get_item(item_id); req = get_request(item["request_id"])
+    _touch_item(item_id, {"status": "sales_offer", "sl_price": sell_price, "sl_note": note})
+    diff_note = f"Harga Purchasing: {item.get('pur_price',0)} → Harga Jual Store Leader: {sell_price}"
+    log_history(item["request_id"], actor, "Dicek Store Leader — harga jual ditetapkan", diff_note, item_id=item_id)
+    push_notification(item["request_id"], "sales", req.get("branch"), "ready_to_offer",
+                       f"Unit '{item.get('product_name','')}' siap ditawarkan ke customer ({req.get('request_number','')})", item_id=item_id)
+
+
+# ── 4. Sales offer: Deal / No Deal — level ITEM ───────────────────────────────
 def sales_deal(item_id, actor, deal_qty, deal_price, deal_est_closing):
     item = get_item(item_id)
     _touch_item(item_id, {"status": "won", "deal_qty": deal_qty, "deal_price": deal_price,
@@ -318,13 +295,12 @@ def get_dashboard_stats(branch=None):
         "total": total,
         "total_items": len(all_items),
         "waiting_approval": waiting_approval,
-        "waiting_pm": c("waiting_product_review"),
-        "waiting_purchasing": c("product_found", "replacement_suggested"),
-        "ready_to_offer": c("sales_offer", "store_leader_check"),
+        "waiting_purchasing": c("waiting_purchasing"),
+        "waiting_leader_check": c("store_leader_check"),
+        "ready_to_offer": c("sales_offer"),
         "deal": c("won"),
         "no_deal": c("lost"),
-        "replacement": sum(1 for i in all_items if i.get("repl_product_name")),
-        "eol": sum(1 for i in all_items if i.get("repl_product_name")),
+        "unable": c("unable_to_source"),
         "deal_rate": deal_rate, "nodeal_rate": nodeal_rate,
         "rows": reqs, "items": all_items,
     }
