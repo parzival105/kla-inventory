@@ -613,6 +613,9 @@ def render_reports(user):
             row["branch"] = req.get("branch"); row["sales_name"] = req.get("sales_name")
             row["request_date"] = req.get("request_date")
             all_items.append(row)
+    if not all_items:
+        st.info("Belum ada produk yang tercatat di request manapun (request masih Draft/belum ada item).")
+        return
     idf = pd.DataFrame(all_items)
     idf["status_label"] = idf["status"].map(lambda s: ITEM_STATUS_MAP.get(s,(s,""))[0])
 
