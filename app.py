@@ -33,16 +33,22 @@ def fmt(v):
 
 def go(page): st.session_state.page=page; st.rerun()
 
-# ── Session Persistence via localStorage ─────────────────────────────────────
-def save_session_cookie(token):
-    # Simpan ke localStorage via JS — persist lewat reload
+# ── Session Persistence via localStorage/sessionStorage ──────────────────────
+def save_session_cookie(token, remember=True):
+    # remember=True  → localStorage (tetap login walau browser ditutup, sampai token kedaluwarsa)
+    # remember=False → sessionStorage (login hilang begitu tab/browser ditutup)
+    store = "localStorage" if remember else "sessionStorage"
     st.markdown(f"""<script>
-    try{{localStorage.setItem('kla_token','{token}');}}catch(e){{}}
+    try{{
+        localStorage.removeItem('kla_token');
+        sessionStorage.removeItem('kla_token');
+        {store}.setItem('kla_token','{token}');
+    }}catch(e){{}}
     </script>""", unsafe_allow_html=True)
 
 def clear_session_cookie():
     st.markdown("""<script>
-    try{{localStorage.removeItem('kla_token');}}catch(e){{}}
+    try{{localStorage.removeItem('kla_token'); sessionStorage.removeItem('kla_token');}}catch(e){{}}
     </script>""", unsafe_allow_html=True)
 
 def get_token_from_storage():
@@ -53,11 +59,11 @@ def get_token_from_storage():
         return None
 
 def inject_token_reader():
-    # JS: baca localStorage dan inject ke URL sebagai query param
+    # JS: baca localStorage (ingat saya) atau sessionStorage (per-tab), inject ke URL sebagai query param
     st.markdown("""<script>
     (function(){
         try{
-            var t=localStorage.getItem('kla_token');
+            var t=localStorage.getItem('kla_token') || sessionStorage.getItem('kla_token');
             if(t){
                 var url=new URL(window.location.href);
                 if(url.searchParams.get('_t')!==t){
@@ -122,20 +128,21 @@ def page_login():
             st.subheader("Masuk ke Akun Anda")
             username=st.text_input("Username")
             password=st.text_input("Password",type="password")
+            remember=st.checkbox("🔒 Ingat saya di perangkat ini (tetap login 30 hari)",value=True)
             if st.form_submit_button("Masuk →",use_container_width=True,type="primary"):
                 if not username or not password:
                     st.error("Lengkapi username dan password")
                 else:
                     try:
                         from modules.db import login
-                        login_result=login(username,password)
+                        login_result=login(username,password,remember=remember)
                         if len(login_result)==3: ok,token,user=login_result
                         else: ok,user=login_result; token=None
                         if ok:
                             st.session_state.user=user
                             if token:
                                 st.session_state._token=token
-                                save_session_cookie(token)
+                                save_session_cookie(token,remember)
                             try:
                                 from modules.storage import load_analysis,load_components
                                 an=load_analysis()
@@ -230,7 +237,7 @@ def render_sidebar():
         prms_title = "📦 Project Request" + (f" 🔴{_prms_unread}" if _prms_unread else "")
         with st.expander(prms_title+(" ◀" if prms_active else ""), expanded=prms_active):
             prms_items=[("prms_dashboard","📊 Dashboard")]
-            if role in ("sales","super_admin"):
+            if role in ("sales","store_leader","super_admin"):
                 prms_items += [("prms_new","➕ Request Baru"),("prms_my_drafts","📝 Draft Saya"),
                                 ("prms_sales_offer","💬 Sales Offer")]
             if role in ("store_leader","area_manager","super_admin"):
@@ -746,8 +753,8 @@ def page_pcbuilder():
             res = [c for c in res if ram_cap_filter.lower().replace(" ","") in c.get("nama_barang","").lower().replace(" ","")]
         return sorted(res, key=lambda c: float(c.get("h1",0)))
 
-    def _comp_card(c, idx=0):
-        if not c: return
+    def _comp_card(c, qty_key=None):
+        if not c: return 1
         bs = c.get("branch_stock", {})
         if isinstance(bs, str):
             import json; bs = json.loads(bs) if bs else {}
@@ -761,7 +768,17 @@ def page_pcbuilder():
             nm=BRANCH_FULL.get(br,br)
             branch_parts.append('<span style="background:'+bg+';color:'+fg+';border:1px solid '+bd+';border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600;margin:2px">'+nm+": "+str(qty)+'</span>')
         branch_html = "".join(branch_parts) if branch_parts else '<span style="color:#6b4f8a;font-size:10px">Tidak ada stok</span>'
-        st.markdown('<div style="background:#130a1e;border:1px solid #2d1a45;border-radius:8px;padding:10px 14px;margin-top:4px"><div style="display:flex;justify-content:space-between"><div style="color:#e2e8f0;font-size:13px;font-weight:600">'+nama+'</div><div style="color:#a855f7;font-weight:700;font-family:monospace">'+_fmt(harga)+'</div></div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">'+branch_html+'</div></div>', unsafe_allow_html=True)
+        card_html = '<div style="background:#130a1e;border:1px solid #2d1a45;border-radius:8px;padding:10px 14px;margin-top:4px"><div style="display:flex;justify-content:space-between"><div style="color:#e2e8f0;font-size:13px;font-weight:600">'+nama+'</div><div style="color:#a855f7;font-weight:700;font-family:monospace">'+_fmt(harga)+'</div></div><div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:6px">'+branch_html+'</div></div>'
+        if qty_key:
+            col1, col2 = st.columns([4,1])
+            with col1:
+                st.markdown(card_html, unsafe_allow_html=True)
+            with col2:
+                qty = st.number_input("Qty", min_value=1, value=1, step=1, key=qty_key)
+            return int(qty)
+        else:
+            st.markdown(card_html, unsafe_allow_html=True)
+            return 1
 
     # ══════════════════════════════════════════════════════════════════════════
     # MODE 1: AUTO GENERATE
@@ -890,7 +907,7 @@ def page_pcbuilder():
         cpu_names = ["-- Pilih Processor --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_cpu]
         sel_cpu_idx = st.selectbox("Pilih Processor", range(len(cpu_names)), format_func=lambda i: cpu_names[i], key="cb_cpu")
         sel_cpu = all_cpu[sel_cpu_idx-1] if sel_cpu_idx > 0 else None
-        if sel_cpu: _comp_card(sel_cpu)
+        qty_cpu = _comp_card(sel_cpu, qty_key="cb_qty_cpu") if sel_cpu else 1
 
         # CPU rule untuk filter MB & RAM
         cpu_rule = None
@@ -908,7 +925,7 @@ def page_pcbuilder():
             st.caption("MB difilter untuk socket "+cpu_socket+". Chipset: "+", ".join(mb_chips or []))
         sel_mb_idx = st.selectbox("Pilih Motherboard", range(len(mb_names)), format_func=lambda i: mb_names[i], key="cb_mb")
         sel_mb = all_mb[sel_mb_idx-1] if sel_mb_idx > 0 else None
-        if sel_mb: _comp_card(sel_mb)
+        qty_mb = _comp_card(sel_mb, qty_key="cb_qty_mb") if sel_mb else 1
 
         # Step 3: RAM (filter by DDR type dari CPU rule)
         st.divider()
@@ -933,7 +950,7 @@ def page_pcbuilder():
         ram_names = ["-- Pilih RAM --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_ram]
         sel_ram_idx = st.selectbox("Pilih RAM", range(len(ram_names)), format_func=lambda i: ram_names[i], key="cb_ram")
         sel_ram = all_ram[sel_ram_idx-1] if sel_ram_idx > 0 else None
-        if sel_ram: _comp_card(sel_ram)
+        qty_ram = _comp_card(sel_ram, qty_key="cb_qty_ram") if sel_ram else 1
 
         # Step 4: Storage
         st.divider()
@@ -943,13 +960,13 @@ def page_pcbuilder():
             ssd_names = ["-- Pilih SSD (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_ssd]
             sel_ssd_idx = st.selectbox("Pilih SSD", range(len(ssd_names)), format_func=lambda i: ssd_names[i], key="cb_ssd")
             sel_ssd = all_ssd[sel_ssd_idx-1] if sel_ssd_idx > 0 else None
-            if sel_ssd: _comp_card(sel_ssd)
+            qty_ssd = _comp_card(sel_ssd, qty_key="cb_qty_ssd") if sel_ssd else 1
         with col2:
             all_hdd = _by_cat("HDD INTERNAL")
             hdd_names = ["-- Pilih HDD (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_hdd]
             sel_hdd_idx = st.selectbox("Pilih HDD", range(len(hdd_names)), format_func=lambda i: hdd_names[i], key="cb_hdd")
             sel_hdd = all_hdd[sel_hdd_idx-1] if sel_hdd_idx > 0 else None
-            if sel_hdd: _comp_card(sel_hdd)
+            qty_hdd = _comp_card(sel_hdd, qty_key="cb_qty_hdd") if sel_hdd else 1
 
         # Step 5: GPU
         st.divider()
@@ -957,7 +974,7 @@ def page_pcbuilder():
         gpu_names = ["-- Pilih VGA (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_gpu]
         sel_gpu_idx = st.selectbox("Pilih VGA / Graphic Card", range(len(gpu_names)), format_func=lambda i: gpu_names[i], key="cb_gpu")
         sel_gpu = all_gpu[sel_gpu_idx-1] if sel_gpu_idx > 0 else None
-        if sel_gpu: _comp_card(sel_gpu)
+        qty_gpu = _comp_card(sel_gpu, qty_key="cb_qty_gpu") if sel_gpu else 1
 
         # Step 6: PSU
         st.divider()
@@ -965,7 +982,7 @@ def page_pcbuilder():
         psu_names = ["-- Pilih Power Supply --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_psu]
         sel_psu_idx = st.selectbox("Pilih Power Supply", range(len(psu_names)), format_func=lambda i: psu_names[i], key="cb_psu")
         sel_psu = all_psu[sel_psu_idx-1] if sel_psu_idx > 0 else None
-        if sel_psu: _comp_card(sel_psu)
+        qty_psu = _comp_card(sel_psu, qty_key="cb_qty_psu") if sel_psu else 1
 
         # Step 7: Casing
         st.divider()
@@ -973,7 +990,7 @@ def page_pcbuilder():
         casing_names = ["-- Pilih Casing --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_casing]
         sel_casing_idx = st.selectbox("Pilih Casing", range(len(casing_names)), format_func=lambda i: casing_names[i], key="cb_casing")
         sel_casing = all_casing[sel_casing_idx-1] if sel_casing_idx > 0 else None
-        if sel_casing: _comp_card(sel_casing)
+        qty_casing = _comp_card(sel_casing, qty_key="cb_qty_casing") if sel_casing else 1
 
         # Step 8: CPU Cooler
         st.divider()
@@ -981,14 +998,19 @@ def page_pcbuilder():
         cooler_names = ["-- Pilih CPU Cooler (Opsional) --"] + [c["nama_barang"]+" ("+_fmt(c["h1"])+")" for c in all_cooler]
         sel_cooler_idx = st.selectbox("Pilih CPU Cooler", range(len(cooler_names)), format_func=lambda i: cooler_names[i], key="cb_cooler")
         sel_cooler = all_cooler[sel_cooler_idx-1] if sel_cooler_idx > 0 else None
-        if sel_cooler: _comp_card(sel_cooler)
+        qty_cooler = _comp_card(sel_cooler, qty_key="cb_qty_cooler") if sel_cooler else 1
 
         # ── Summary & Kompatibilitas ──────────────────────────────────────────
         st.divider()
-        selected_parts = [c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
+        qty_map = {"sel_cpu":qty_cpu,"sel_mb":qty_mb,"sel_ram":qty_ram,"sel_ssd":qty_ssd,"sel_hdd":qty_hdd,
+                   "sel_gpu":qty_gpu,"sel_psu":qty_psu,"sel_casing":qty_casing,"sel_cooler":qty_cooler}
+        slot_parts = [("sel_cpu",sel_cpu),("sel_mb",sel_mb),("sel_ram",sel_ram),("sel_ssd",sel_ssd),
+                      ("sel_hdd",sel_hdd),("sel_gpu",sel_gpu),("sel_psu",sel_psu),("sel_casing",sel_casing),
+                      ("sel_cooler",sel_cooler)]
+        selected_parts = [c for _,c in slot_parts if c]
         if selected_parts:
-            total = sum(float(c.get("h1",0)) for c in selected_parts)
-            total_hpp = sum(float(c.get("hpp",0)) for c in selected_parts)
+            total = sum(float(c.get("h1",0))*qty_map[slot] for slot,c in slot_parts if c)
+            total_hpp = sum(float(c.get("hpp",0))*qty_map[slot] for slot,c in slot_parts if c)
             margin = (total-total_hpp)/total*100 if total>0 else 0
 
             st.markdown("## Total: **"+_fmt(total)+"**")
@@ -1010,8 +1032,9 @@ def page_pcbuilder():
             # Simpan build
             user=get_user()
             bn=st.text_input("Nama Build",value="Custom Build "+_fmt(total),key="cb_savename")
-            parts=[c for c in [sel_cpu,sel_mb,sel_ram,sel_ssd,sel_hdd,sel_gpu,sel_psu,sel_casing,sel_cooler] if c]
-            for p in parts:
+            parts=[dict(c) for slot,c in slot_parts if c]
+            for (slot,_c),p in zip([(s,c) for s,c in slot_parts if c], parts):
+                p["qty"]=qty_map[slot]
                 p.setdefault("selling_price",float(p.get("h1",0)))
                 p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
             c_sv1,c_sv2=st.columns(2)
@@ -1355,10 +1378,12 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
 
         # Tabel komponen
         story.append(Paragraph("Daftar Komponen", head_style))
-        table_data = [["No", "Kategori", "Nama Komponen", "Harga"]]
+        table_data = [["No", "Kategori", "Nama Komponen", "Qty", "Harga"]]
         total = 0
         for i, c in enumerate(components):
-            harga = float(c.get("selling_price", c.get("h1", 0)))
+            qty = int(c.get("qty", 1) or 1)
+            harga_satuan = float(c.get("selling_price", c.get("h1", 0)))
+            harga = harga_satuan * qty
             total += harga
             def fs(v):
                 a=abs(v)
@@ -1369,11 +1394,12 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
                 str(i+1),
                 c.get("kategori_label", c.get("kategori","")),
                 c.get("nama_barang", c.get("nama","")),
+                str(qty),
                 fs(harga)
             ])
-        table_data.append(["", "", "TOTAL", fs(total)])
+        table_data.append(["", "", "", "TOTAL", fs(total)])
 
-        t = Table(table_data, colWidths=[1*cm, 3.5*cm, 9*cm, 2.5*cm])
+        t = Table(table_data, colWidths=[1*cm, 3*cm, 7.5*cm, 1.5*cm, 2.5*cm])
         t.setStyle(TableStyle([
             ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#431061")),
             ("TEXTCOLOR", (0,0), (-1,0), colors.white),
@@ -1383,7 +1409,7 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
             ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#EDE9F6")),
             ("FONTNAME", (0,-1), (-1,-1), "Helvetica-Bold"),
             ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#CCCCCC")),
-            ("ALIGN", (3,0), (3,-1), "RIGHT"),
+            ("ALIGN", (3,0), (4,-1), "RIGHT"),
             ("ALIGN", (0,0), (0,-1), "CENTER"),
             ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
             ("PADDING", (0,0), (-1,-1), 5),
@@ -1540,8 +1566,8 @@ def page_prms_dashboard():
 
 def page_prms_new():
     user = get_user()
-    if user["role"] not in ("sales","super_admin"):
-        st.error("Hanya Sales yang dapat membuat request"); return
+    if user["role"] not in ("sales","store_leader","super_admin"):
+        st.error("Hanya Sales atau Store Leader yang dapat membuat request"); return
     from modules.prms_pages import render_new_request
     render_new_request(user)
 
@@ -1601,6 +1627,13 @@ def main():
     if not get_user():
         if not restore_session():
             page_login(); return
+    # Auto-refresh ringan supaya notifikasi/badge terbaru muncul tanpa reload manual.
+    # Tidak mengganggu widget yang punya key (nilainya tetap tersimpan lintas rerun).
+    try:
+        from streamlit_autorefresh import st_autorefresh
+        st_autorefresh(interval=20000, key="global_autorefresh")
+    except Exception:
+        pass
     # Load analysis dari Supabase untuk semua role jika belum ada di session
     if get_user() and not st.session_state.get("analysis"):
         try:

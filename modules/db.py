@@ -25,16 +25,17 @@ def _delete(table, filters):
 
 def hash_pw(pw): return hashlib.sha256(f"kla_salt_{pw}_kla2025".encode()).hexdigest()
 
-def login(username, password):
+def login(username, password, remember=False):
     rows=_get("users",{"username":f"eq.{username.lower().strip()}","is_active":"is.true","select":"*"})
     if not rows: return False, None
     user=rows[0]
     if hash_pw(password)!=user["password_hash"]: return False, None
     token=secrets.token_urlsafe(32)
-    _post("sessions",{"token":token,"user_id":user["id"],"expires_at":(datetime.utcnow()+timedelta(hours=8)).isoformat()+"Z"})
+    hours = 24*30 if remember else 8  # "Ingat saya" → sesi tetap aktif 30 hari
+    _post("sessions",{"token":token,"user_id":user["id"],"expires_at":(datetime.utcnow()+timedelta(hours=hours)).isoformat()+"Z"})
     try: _patch("users",{"id":user["id"]},{"last_login":datetime.utcnow().isoformat()+"Z"})
     except: pass
-    return True, user
+    return True, token, user
 
 def validate_token(token):
     if not token: return None

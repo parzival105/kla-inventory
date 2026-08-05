@@ -355,7 +355,7 @@ def render_detail(user):
     status = r.get("status")
 
     # ── Sales: submit draft (seluruh request) ───────────────────────────────
-    if status == "draft" and (is_sales(user) and r.get("sales_id")==user["id"] or user["role"]=="super_admin"):
+    if status == "draft" and ((is_sales(user) or user["role"]=="store_leader") and r.get("sales_id")==user["id"] or user["role"]=="super_admin"):
         st.subheader("📤 Submit Request")
         if st.button("Submit ke Store Leader", type="primary"):
             submit_request(rid, user["full_name"])
@@ -456,7 +456,7 @@ def _render_item_card(user, it):
                 st.success("Harga ditetapkan — sales bisa langsung menawarkan"); st.rerun()
 
     # 5. Sales offer: Deal / No Deal
-    elif status == "sales_offer" and (is_sales(user) or user["role"]=="super_admin"):
+    elif status == "sales_offer" and (is_sales(user) or user["role"] in ("store_leader","super_admin")):
         price_ref = it.get("sl_price") if it.get("sl_price") is not None else (it.get("pur_price") or 0)
         st.info(f"Harga jual: {_fmt(price_ref)}  |  Supplier: {it.get('pur_supplier','-')}  |  ETA: {it.get('pur_eta','-')}")
         tab1, tab2 = st.tabs(["✅ Deal","❌ No Deal"])
