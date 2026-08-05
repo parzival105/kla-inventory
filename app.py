@@ -171,6 +171,32 @@ def render_sidebar():
 <div style="color:#a855f7;font-size:12px">{user.get("role_label",user["role"])}</div>
 {"<div style='color:#4a3060;font-size:11px'>📍 "+user.get("branch_name","")+"</div>" if user.get("branch_name") else ""}
 </div>""", unsafe_allow_html=True)
+
+        # ── Panel Notifikasi — selalu terlihat, tidak perlu buka menu ──────────
+        try:
+            from modules.prms_db import get_notifications as _sb_get_notif, mark_notification_read as _sb_mark_read
+            _sb_branch = user.get("branch") if user["role"]=="store_leader" else None
+            _sb_notifs = _sb_get_notif(role=user["role"], branch=_sb_branch, unread_only=True, limit=5)
+        except Exception:
+            _sb_notifs = []
+        _sb_count = len(_sb_notifs)
+        _sb_border = "#ef4444" if _sb_count else "#2d1a45"
+        _sb_items_html = ""
+        for _n in _sb_notifs[:4]:
+            _sb_items_html += f'<div style="background:#130a1e;border-left:2px solid #a855f7;border-radius:6px;padding:6px 10px;margin-top:6px;font-size:11px;color:#c4b5d4;line-height:1.35">{_n.get("message","")}</div>'
+        if not _sb_notifs:
+            _sb_items_html = '<div style="color:#4a3060;font-size:11px;margin-top:6px">Tidak ada notifikasi baru</div>'
+        st.markdown(f"""
+<div style="background:#180d28;border:1px solid {_sb_border};border-radius:10px;padding:10px 12px;margin-bottom:12px">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<span style="color:#e2e8f0;font-weight:700;font-size:12px">🔔 Notifikasi</span>
+{"<span style='background:#ef4444;color:white;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:700'>"+str(_sb_count)+"</span>" if _sb_count else ""}
+</div>
+{_sb_items_html}
+</div>""", unsafe_allow_html=True)
+        if st.button("Lihat semua notifikasi" + (f" ({_sb_count})" if _sb_count else ""), key="nav_notif_panel", use_container_width=True):
+            st.session_state["prms_view"]="list"; go("prms_notif")
+
         cur=st.session_state.page
 
         # Dashboard
