@@ -175,6 +175,17 @@ def get_build_history(user_id=None, limit=50):
     try: return _get("build_history", params)
     except: return []
 
+def update_build_status(build_id, status, note=""):
+    """status: 'pending' | 'deal' | 'no_deal'"""
+    try:
+        _patch("build_history", {"id": str(build_id)}, {
+            "status": status, "status_note": note or "",
+            "status_updated_at": datetime.utcnow().isoformat() + "Z"
+        })
+        return True
+    except Exception:
+        return False
+
 # ── Stock Request ─────────────────────────────────────────────────────────────
 def create_stock_request(user_id, username, full_name, branch, branch_name, 
                           product_name, qty, reason, priority):

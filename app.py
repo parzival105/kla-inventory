@@ -1482,17 +1482,45 @@ def page_build_history():
         st.info("Belum ada build yang disimpan.")
         return
 
-    c1,c2,c3 = st.columns(3)
+    c1,c2,c3,c4 = st.columns(4)
     with c1: st.metric("Total Build", len(history))
-    with c2: st.metric("Build Bulan Ini", sum(1 for h in history if h.get("created_at","")[:7] >= "2025-01"))
-    with c3: st.metric("Total Nilai", "Rp " + f"{sum(float(h.get('total_price',0)) for h in history)/1e6:.1f}" + "Jt")
+    with c2: st.metric("🏆 Deal", sum(1 for h in history if h.get("status")=="deal"))
+    with c3: st.metric("❌ No Deal", sum(1 for h in history if h.get("status")=="no_deal"))
+    with c4: st.metric("⏳ Pending", sum(1 for h in history if h.get("status","pending") in (None,"","pending")))
     st.divider()
+
+    STATUS_BADGE = {"deal":("🏆 Deal","#22c55e"), "no_deal":("❌ No Deal","#ef4444"), "pending":("⏳ Pending","#94a3b8")}
+
+    filter_status = st.selectbox("Filter status", ["Semua","Pending","Deal","No Deal"], key="bh_filter")
+    if filter_status != "Semua":
+        rev = {"Pending":"pending","Deal":"deal","No Deal":"no_deal"}
+        history = [h for h in history if (h.get("status") or "pending") == rev[filter_status]]
 
     for h in history:
         tp = float(h.get("total_price",0))
         budget = float(h.get("budget",0))
         created = h.get("created_at","")[:16].replace("T"," ")
-        with st.expander(h.get("build_name","Build") + " — " + _fmt_h(tp) + " | " + created):
+        cur_status = h.get("status") or "pending"
+        badge_label, badge_color = STATUS_BADGE.get(cur_status, STATUS_BADGE["pending"])
+        header = h.get("build_name","Build") + " — " + _fmt_h(tp) + " | " + created + "  " + badge_label
+        with st.expander(header):
+            st.markdown(f'<span style="background:{badge_color}22;color:{badge_color};border:1px solid {badge_color}55;border-radius:6px;padding:2px 10px;font-size:12px;font-weight:700">{badge_label}</span>', unsafe_allow_html=True)
+            if h.get("status_note"):
+                st.caption("Catatan: " + h["status_note"])
+            with st.form(f"status_form_{h.get('id','')}"):
+                new_status = st.selectbox("Ubah status", ["Pending","Deal","No Deal"],
+                                           index=["pending","deal","no_deal"].index(cur_status if cur_status in ("pending","deal","no_deal") else "pending"),
+                                           key=f"st_sel_{h.get('id','')}")
+                status_note = st.text_input("Catatan (opsional, mis. alasan No Deal)",
+                                             value=h.get("status_note","") or "", key=f"st_note_{h.get('id','')}")
+                if st.form_submit_button("💾 Simpan Status"):
+                    from modules.db import update_build_status
+                    rev_map = {"Pending":"pending","Deal":"deal","No Deal":"no_deal"}
+                    if update_build_status(h["id"], rev_map[new_status], status_note):
+                        st.success("Status diperbarui"); st.rerun()
+                    else:
+                        st.error("Gagal menyimpan status")
+            st.divider()
             col1,col2 = st.columns([3,1])
             with col1:
                 st.markdown("**Tipe:** " + h.get("build_type","Custom"))

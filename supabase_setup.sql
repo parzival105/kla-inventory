@@ -93,6 +93,11 @@ CREATE POLICY "sa" ON online_presence FOR ALL USING (true);
 -- Tambah kolom components ke build_history jika belum ada
 ALTER TABLE build_history ADD COLUMN IF NOT EXISTS components TEXT DEFAULT '';
 
+-- Status Deal / No Deal / Pending untuk tiap build PC
+ALTER TABLE build_history ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pending';
+ALTER TABLE build_history ADD COLUMN IF NOT EXISTS status_note TEXT;
+ALTER TABLE build_history ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
+
 -- Stock Request Table
 CREATE TABLE IF NOT EXISTS stock_requests (
   id           BIGSERIAL PRIMARY KEY,
