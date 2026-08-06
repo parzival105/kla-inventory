@@ -1685,7 +1685,7 @@ def main():
     # Tidak mengganggu widget yang punya key (nilainya tetap tersimpan lintas rerun).
     try:
         from streamlit_autorefresh import st_autorefresh
-        st_autorefresh(interval=20000, key="global_autorefresh")
+        st_autorefresh(interval=60000, key="global_autorefresh")
     except Exception:
         pass
     # Load analysis dari Supabase untuk semua role jika belum ada di session
