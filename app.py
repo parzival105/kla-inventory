@@ -1148,7 +1148,7 @@ def page_users():
 
     # TAB 1: Daftar
     with tabs[0]:
-        if not visible: st.info("Belum ada user di cabang/area ini."); return
+        if not visible: st.info("Belum ada user di cabang/area ini.")
         for u in visible:
             c1,c2=st.columns([4,1])
             with c1:
