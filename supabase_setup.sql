@@ -513,3 +513,86 @@ ALTER TABLE prms_request_items ADD COLUMN IF NOT EXISTS sl_price NUMERIC;
 ALTER TABLE prms_request_items ADD COLUMN IF NOT EXISTS sl_note TEXT;
 
 SELECT 'Store Leader price override (sl_price, sl_note) added!' AS status;
+
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- PC REQUEST — Custom PC Build Request (rakitan/pemesanan khusus di luar stok)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS pc_build_requests (
+  id                  BIGSERIAL PRIMARY KEY,
+  request_number      TEXT UNIQUE NOT NULL,
+  customer_name       TEXT NOT NULL,
+  branch              TEXT NOT NULL, branch_name TEXT,
+  sales_id            BIGINT REFERENCES users(id), sales_name TEXT,
+  request_date        DATE DEFAULT CURRENT_DATE,
+  customer_note       TEXT,
+  status              TEXT NOT NULL DEFAULT 'draft',
+  -- draft, submitted, store_leader_check, sales_offer, won, lost, rejected
+  reject_reason       TEXT,
+
+  -- Spek yang diminta Sales, per kategori
+  proc_spec TEXT, mobo_spec TEXT, ram_spec TEXT, gpu_spec TEXT,
+  storage_spec TEXT, casing_spec TEXT, fan_spec TEXT,
+
+  -- Hasil sourcing Admin Purchasing, per kategori
+  proc_found TEXT, proc_price NUMERIC,
+  mobo_found TEXT, mobo_price NUMERIC,
+  ram_found TEXT, ram_price NUMERIC,
+  gpu_found TEXT, gpu_price NUMERIC,
+  storage_found TEXT, storage_price NUMERIC,
+  casing_found TEXT, casing_price NUMERIC,
+  fan_found TEXT, fan_price NUMERIC,
+  purchasing_note TEXT,
+
+  -- Store Leader — harga jual total ke customer
+  sl_price NUMERIC, sl_note TEXT,
+
+  -- Sales offer — Deal / No Deal
+  deal_price NUMERIC, deal_est_closing DATE,
+  nodeal_reason TEXT, nodeal_note TEXT,
+
+  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Item "Lain-lain" — jumlahnya fleksibel (Monitor, Mouse, Keyboard, Speaker, dll)
+CREATE TABLE IF NOT EXISTS pc_build_extras (
+  id           BIGSERIAL PRIMARY KEY,
+  request_id   BIGINT NOT NULL REFERENCES pc_build_requests(id) ON DELETE CASCADE,
+  label        TEXT NOT NULL,
+  spec         TEXT,
+  qty          INT DEFAULT 1,
+  found        TEXT, price NUMERIC,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pc_build_logs (
+  id           BIGSERIAL PRIMARY KEY,
+  request_id   BIGINT NOT NULL REFERENCES pc_build_requests(id) ON DELETE CASCADE,
+  actor        TEXT, action TEXT NOT NULL, note TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pc_build_notifications (
+  id           BIGSERIAL PRIMARY KEY,
+  request_id   BIGINT REFERENCES pc_build_requests(id) ON DELETE CASCADE,
+  target_role  TEXT, branch TEXT, notif_type TEXT NOT NULL, message TEXT NOT NULL,
+  is_read      BOOLEAN DEFAULT false, created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE pc_build_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pc_build_extras ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pc_build_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pc_build_notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "sa" ON pc_build_requests;
+DROP POLICY IF EXISTS "sa" ON pc_build_extras;
+DROP POLICY IF EXISTS "sa" ON pc_build_logs;
+DROP POLICY IF EXISTS "sa" ON pc_build_notifications;
+
+CREATE POLICY "sa" ON pc_build_requests FOR ALL USING (true);
+CREATE POLICY "sa" ON pc_build_extras FOR ALL USING (true);
+CREATE POLICY "sa" ON pc_build_logs FOR ALL USING (true);
+CREATE POLICY "sa" ON pc_build_notifications FOR ALL USING (true);
+
+SELECT 'PC Request (custom build) tables created!' AS status;

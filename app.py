@@ -174,16 +174,25 @@ def render_sidebar():
 
         # ── Panel Notifikasi — selalu terlihat, tidak perlu buka menu ──────────
         try:
-            from modules.prms_db import get_notifications as _sb_get_notif, mark_notification_read as _sb_mark_read
+            from modules.prms_db import get_notifications as _sb_get_notif_prms
             _sb_branch = user.get("branch") if user["role"]=="store_leader" else None
-            _sb_notifs = _sb_get_notif(role=user["role"], branch=_sb_branch, unread_only=True, limit=5)
+            _sb_notifs_prms = _sb_get_notif_prms(role=user["role"], branch=_sb_branch, unread_only=True, limit=5)
         except Exception:
-            _sb_notifs = []
+            _sb_notifs_prms = []
+        try:
+            from modules.pcreq_db import get_notifications as _sb_get_notif_pcreq
+            _sb_notifs_pcreq = _sb_get_notif_pcreq(role=user["role"], branch=_sb_branch, unread_only=True, limit=5)
+        except Exception:
+            _sb_notifs_pcreq = []
+        for _n in _sb_notifs_prms: _n["_src"]="prms"
+        for _n in _sb_notifs_pcreq: _n["_src"]="pcreq"
+        _sb_notifs = sorted(_sb_notifs_prms + _sb_notifs_pcreq, key=lambda x: x.get("created_at",""), reverse=True)
         _sb_count = len(_sb_notifs)
         _sb_border = "#ef4444" if _sb_count else "#2d1a45"
         _sb_items_html = ""
         for _n in _sb_notifs[:4]:
-            _sb_items_html += f'<div style="background:#130a1e;border-left:2px solid #a855f7;border-radius:6px;padding:6px 10px;margin-top:6px;font-size:11px;color:#c4b5d4;line-height:1.35">{_n.get("message","")}</div>'
+            _sb_tag = "📦" if _n.get("_src")=="prms" else "🖥️"
+            _sb_items_html += f'<div style="background:#130a1e;border-left:2px solid #a855f7;border-radius:6px;padding:6px 10px;margin-top:6px;font-size:11px;color:#c4b5d4;line-height:1.35">{_sb_tag} {_n.get("message","")}</div>'
         if not _sb_notifs:
             _sb_items_html = '<div style="color:#4a3060;font-size:11px;margin-top:6px">Tidak ada notifikasi baru</div>'
         st.markdown(f"""
@@ -194,8 +203,13 @@ def render_sidebar():
 </div>
 {_sb_items_html}
 </div>""", unsafe_allow_html=True)
-        if st.button("Lihat semua notifikasi" + (f" ({_sb_count})" if _sb_count else ""), key="nav_notif_panel", use_container_width=True):
-            st.session_state["prms_view"]="list"; go("prms_notif")
+        c1,c2 = st.columns(2)
+        with c1:
+            if st.button("📦 Project Request", key="nav_notif_panel_prms", use_container_width=True):
+                st.session_state["prms_view"]="list"; go("prms_notif")
+        with c2:
+            if st.button("🖥️ PC Request", key="nav_notif_panel_pcreq", use_container_width=True):
+                st.session_state["pcreq_view"]="list"; go("pcreq_notif")
 
         cur=st.session_state.page
 
@@ -279,6 +293,34 @@ def render_sidebar():
                 if st.button(label,key="nav_"+key,use_container_width=True,
                              type="primary" if cur==key else "secondary"):
                     st.session_state["prms_view"]="list"; go(key)
+
+        # PC REQUEST
+        pcreq_keys=["pcreq_dashboard","pcreq_new","pcreq_my_drafts","pcreq_purchasing",
+                    "pcreq_leader_check","pcreq_sales_offer","pcreq_all","pcreq_notif","pcreq_reports"]
+        pcreq_active = cur in pcreq_keys
+        try:
+            from modules.pcreq_db import get_notifications as _pcreq_get_notif
+            _pcreq_branch = user.get("branch") if role=="store_leader" else None
+            _pcreq_unread = len(_pcreq_get_notif(role=role, branch=_pcreq_branch, unread_only=True))
+        except Exception:
+            _pcreq_unread = 0
+        pcreq_title = "🖥️ PC Request" + (f" 🔴{_pcreq_unread}" if _pcreq_unread else "")
+        with st.expander(pcreq_title+(" ◀" if pcreq_active else ""), expanded=pcreq_active):
+            pcreq_items=[("pcreq_dashboard","📊 Dashboard")]
+            if role in ("sales","store_leader","super_admin"):
+                pcreq_items += [("pcreq_new","➕ Request Baru"),("pcreq_my_drafts","📝 Draft Saya"),
+                                 ("pcreq_sales_offer","💬 Sales Offer")]
+            if role in ("store_leader","area_manager","super_admin"):
+                pcreq_items += [("pcreq_leader_check","🔎 Store Leader Check")]
+            if role in ("admin_purchasing","super_admin"):
+                pcreq_items += [("pcreq_purchasing","🔎 Antrian Purchasing")]
+            pcreq_items += [("pcreq_all","📋 Semua Request"),
+                             ("pcreq_notif",f"🔔 Notifikasi{' ('+str(_pcreq_unread)+')' if _pcreq_unread else ''}"),
+                             ("pcreq_reports","📑 Laporan")]
+            for key,label in pcreq_items:
+                if st.button(label,key="nav_"+key,use_container_width=True,
+                             type="primary" if cur==key else "secondary"):
+                    st.session_state["pcreq_view"]="list"; go(key)
 
         # Pengaturan
         if is_leader():
@@ -1673,6 +1715,54 @@ def page_prms_reports():
     from modules.prms_pages import render_reports
     render_reports(get_user())
 
+# ══════════════════════════════════════════════════════════════════════════════
+# PC REQUEST PAGES
+# ══════════════════════════════════════════════════════════════════════════════
+def page_pcreq_dashboard():
+    from modules.pcreq_pages import render_dashboard
+    render_dashboard(get_user())
+
+def page_pcreq_new():
+    user = get_user()
+    if user["role"] not in ("sales","store_leader","super_admin"):
+        st.error("Hanya Sales atau Store Leader yang dapat membuat request"); return
+    from modules.pcreq_pages import render_new_request
+    render_new_request(user)
+
+def page_pcreq_detail():
+    from modules.pcreq_pages import render_detail
+    render_detail(get_user())
+
+def _page_pcreq_list(status_filter, title):
+    user = get_user()
+    if st.session_state.get("pcreq_view") == "detail":
+        page_pcreq_detail(); return
+    from modules.pcreq_pages import render_list
+    render_list(user, status_filter=status_filter, title=title)
+
+def page_pcreq_my_drafts():
+    _page_pcreq_list("draft", "📝 Draft Saya")
+
+def page_pcreq_purchasing():
+    _page_pcreq_list("submitted", "🔎 Antrian Admin Purchasing")
+
+def page_pcreq_leader_check():
+    _page_pcreq_list("store_leader_check", "🔎 Store Leader Check")
+
+def page_pcreq_sales_offer():
+    _page_pcreq_list("sales_offer", "💬 Sales Offer")
+
+def page_pcreq_all():
+    _page_pcreq_list(None, "📋 Semua PC Request")
+
+def page_pcreq_notif():
+    from modules.pcreq_pages import render_notifications
+    render_notifications(get_user())
+
+def page_pcreq_reports():
+    from modules.pcreq_pages import render_reports
+    render_reports(get_user())
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ROUTER
@@ -1752,6 +1842,15 @@ def main():
     elif p=="prms_notif": page_prms_notif()
     elif p=="prms_master": page_prms_master()
     elif p=="prms_reports": page_prms_reports()
+    elif p=="pcreq_dashboard": page_pcreq_dashboard()
+    elif p=="pcreq_new": page_pcreq_new()
+    elif p=="pcreq_my_drafts": page_pcreq_my_drafts()
+    elif p=="pcreq_purchasing": page_pcreq_purchasing()
+    elif p=="pcreq_leader_check": page_pcreq_leader_check()
+    elif p=="pcreq_sales_offer": page_pcreq_sales_offer()
+    elif p=="pcreq_all": page_pcreq_all()
+    elif p=="pcreq_notif": page_pcreq_notif()
+    elif p=="pcreq_reports": page_pcreq_reports()
     else: page_dashboard()
 
 main()
