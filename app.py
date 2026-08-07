@@ -230,15 +230,40 @@ def render_sidebar():
                                  type="primary" if cur==key else "secondary"):
                         go(key)
 
-        # Sales Tools
-        sales_keys=["sales","pcbuilder","build_history"]
+        # Sales Tools (termasuk PC Request di dalamnya)
+        role = user["role"]
+        try:
+            from modules.pcreq_db import get_notifications as _pcreq_get_notif
+            _pcreq_branch = user.get("branch") if role=="store_leader" else None
+            _pcreq_unread = len(_pcreq_get_notif(role=role, branch=_pcreq_branch, unread_only=True))
+        except Exception:
+            _pcreq_unread = 0
+        sales_keys=["sales","pcbuilder","build_history","pcreq_dashboard","pcreq_new","pcreq_my_drafts",
+                    "pcreq_purchasing","pcreq_leader_check","pcreq_sales_offer","pcreq_all","pcreq_notif","pcreq_reports"]
         sales_active=cur in sales_keys
-        with st.expander("🛒 Sales Tools"+(" ◀" if sales_active else ""),expanded=sales_active):
+        sales_title = "🛒 Sales Tools" + (f" 🔴{_pcreq_unread}" if _pcreq_unread else "")
+        with st.expander(sales_title+(" ◀" if sales_active else ""),expanded=sales_active):
             for key,label in [("sales","🔍 Sales Assistant"),("pcbuilder","🖥️ PC Builder"),
                               ("build_history","📋 Riwayat Build")]:
                 if st.button(label,key="nav_"+key,use_container_width=True,
                              type="primary" if cur==key else "secondary"):
                     go(key)
+            st.markdown("<div style='color:#6b4f8a;font-size:11px;font-weight:700;margin:10px 0 4px 4px'>🖥️ PC REQUEST — Custom Build</div>", unsafe_allow_html=True)
+            pcreq_items=[("pcreq_dashboard","📊 Dashboard")]
+            if role in ("sales","store_leader","super_admin"):
+                pcreq_items += [("pcreq_new","➕ Request Baru"),("pcreq_my_drafts","📝 Draft Saya"),
+                                 ("pcreq_sales_offer","💬 Sales Offer")]
+            if role in ("store_leader","area_manager","super_admin"):
+                pcreq_items += [("pcreq_leader_check","🔎 Store Leader Check")]
+            if role in ("admin_purchasing","super_admin"):
+                pcreq_items += [("pcreq_purchasing","🔎 Antrian Purchasing")]
+            pcreq_items += [("pcreq_all","📋 Semua Request"),
+                             ("pcreq_notif",f"🔔 Notifikasi{' ('+str(_pcreq_unread)+')' if _pcreq_unread else ''}"),
+                             ("pcreq_reports","📑 Laporan")]
+            for key,label in pcreq_items:
+                if st.button(label,key="nav_"+key,use_container_width=True,
+                             type="primary" if cur==key else "secondary"):
+                    st.session_state["pcreq_view"]="list"; go(key)
 
         # CRM (lama) — digantikan oleh PRMS di bawah, disembunyikan dari menu.
         # Set SHOW_LEGACY_CRM=True kalau modul lama masih ingin diakses.
@@ -293,34 +318,6 @@ def render_sidebar():
                 if st.button(label,key="nav_"+key,use_container_width=True,
                              type="primary" if cur==key else "secondary"):
                     st.session_state["prms_view"]="list"; go(key)
-
-        # PC REQUEST
-        pcreq_keys=["pcreq_dashboard","pcreq_new","pcreq_my_drafts","pcreq_purchasing",
-                    "pcreq_leader_check","pcreq_sales_offer","pcreq_all","pcreq_notif","pcreq_reports"]
-        pcreq_active = cur in pcreq_keys
-        try:
-            from modules.pcreq_db import get_notifications as _pcreq_get_notif
-            _pcreq_branch = user.get("branch") if role=="store_leader" else None
-            _pcreq_unread = len(_pcreq_get_notif(role=role, branch=_pcreq_branch, unread_only=True))
-        except Exception:
-            _pcreq_unread = 0
-        pcreq_title = "🖥️ PC Request" + (f" 🔴{_pcreq_unread}" if _pcreq_unread else "")
-        with st.expander(pcreq_title+(" ◀" if pcreq_active else ""), expanded=pcreq_active):
-            pcreq_items=[("pcreq_dashboard","📊 Dashboard")]
-            if role in ("sales","store_leader","super_admin"):
-                pcreq_items += [("pcreq_new","➕ Request Baru"),("pcreq_my_drafts","📝 Draft Saya"),
-                                 ("pcreq_sales_offer","💬 Sales Offer")]
-            if role in ("store_leader","area_manager","super_admin"):
-                pcreq_items += [("pcreq_leader_check","🔎 Store Leader Check")]
-            if role in ("admin_purchasing","super_admin"):
-                pcreq_items += [("pcreq_purchasing","🔎 Antrian Purchasing")]
-            pcreq_items += [("pcreq_all","📋 Semua Request"),
-                             ("pcreq_notif",f"🔔 Notifikasi{' ('+str(_pcreq_unread)+')' if _pcreq_unread else ''}"),
-                             ("pcreq_reports","📑 Laporan")]
-            for key,label in pcreq_items:
-                if st.button(label,key="nav_"+key,use_container_width=True,
-                             type="primary" if cur==key else "secondary"):
-                    st.session_state["pcreq_view"]="list"; go(key)
 
         # Pengaturan
         if is_leader():
