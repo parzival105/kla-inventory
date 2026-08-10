@@ -1701,6 +1701,8 @@ def page_prms_detail():
     render_detail(get_user())
 
 def page_prms_notif():
+    if st.session_state.get("prms_view") == "detail":
+        page_prms_detail(); return
     from modules.prms_pages import render_notifications
     render_notifications(get_user())
 
@@ -1753,6 +1755,8 @@ def page_pcreq_all():
     _page_pcreq_list(None, "📋 Semua PC Request")
 
 def page_pcreq_notif():
+    if st.session_state.get("pcreq_view") == "detail":
+        page_pcreq_detail(); return
     from modules.pcreq_pages import render_notifications
     render_notifications(get_user())
 
