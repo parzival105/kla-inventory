@@ -64,6 +64,8 @@ def get_notifications(role=None, branch=None, unread_only=True, limit=200):
     out = []
     for n in rows:
         tr = n.get("target_role")
+        if role == "super_admin":
+            out.append(n); continue
         if tr and role and tr != role: continue
         if tr == "store_leader" and branch and n.get("branch") not in (branch, None, ""): continue
         out.append(n)
