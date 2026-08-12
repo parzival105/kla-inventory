@@ -1623,20 +1623,49 @@ def page_build_history():
                 if ek not in st.session_state:
                     st.session_state[ek] = [dict(c) for c in comps]
                 edit_name = st.text_input("Nama Build", value=h.get("build_name","Build"), key=f"edit_name_{hid}")
+
+                try:
+                    from modules.storage import load_components
+                    all_comps = load_components() or []
+                except Exception:
+                    all_comps = []
+                stock_opts = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
+                             [c.get("nama_barang","")+" — "+_fmt_h(c.get("h1",0)) for c in all_comps]
+
                 edit_list = st.session_state[ek]
                 for i, c in enumerate(edit_list):
-                    c1,c2,c3,c4 = st.columns([3,1,1.3,0.6])
+                    current_name = c.get("nama_barang", c.get("nama",""))
+                    match_idx = 0
+                    for j, cc in enumerate(all_comps):
+                        if cc.get("nama_barang","") == current_name:
+                            match_idx = j+1; break
+                    pick_idx = st.selectbox("Komponen #"+str(i+1)+" — pilih dari stok atau ketik manual",
+                                             range(len(stock_opts)), format_func=lambda k: stock_opts[k],
+                                             index=match_idx, key=f"ed_pick_{hid}_{i}")
+                    prev_key = f"ed_pick_prev_{hid}_{i}"
+                    if pick_idx > 0:
+                        chosen = all_comps[pick_idx-1]
+                        c["nama_barang"] = chosen.get("nama_barang","")
+                        if st.session_state.get(prev_key) != pick_idx:
+                            c["selling_price"] = float(chosen.get("h1",0) or 0)
+                            st.session_state[prev_key] = pick_idx
+                    else:
+                        st.session_state[prev_key] = 0
+                        c["nama_barang"] = st.text_input("Nama komponen (manual)",
+                                                          value=current_name if match_idx==0 else "",
+                                                          key=f"ed_nm_{hid}_{i}")
+
+                    c1,c2,c3 = st.columns([1,1.3,0.6])
                     with c1:
-                        c["nama_barang"] = st.text_input("Nama", value=c.get("nama_barang", c.get("nama","")), key=f"ed_nm_{hid}_{i}")
-                    with c2:
                         c["qty"] = st.number_input("Qty", min_value=1, value=int(c.get("qty",1) or 1), step=1, key=f"ed_qty_{hid}_{i}")
-                    with c3:
+                    with c2:
                         price_val = float(c.get("selling_price", c.get("h1",0)) or 0)
                         c["selling_price"] = st.number_input("Harga Satuan (Rp)", min_value=0, value=int(price_val), step=10000, key=f"ed_price_{hid}_{i}")
-                    with c4:
+                    with c3:
                         st.write("")
-                        if st.button("🗑️", key=f"ed_del_{hid}_{i}"):
+                        if st.button("🗑️ Hapus", key=f"ed_del_{hid}_{i}"):
                             edit_list.pop(i); st.rerun()
+                    st.divider()
                 if st.button("➕ Tambah Komponen", key=f"ed_add_{hid}"):
                     edit_list.append({"nama_barang":"", "kategori_label":"Lainnya", "qty":1, "selling_price":0})
                     st.rerun()
