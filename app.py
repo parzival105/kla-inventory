@@ -1599,12 +1599,14 @@ def page_build_history():
                 if st.button("🔄 Auto-correct harga ke stok terbaru", key=f"ed_autocorrect_{hid}",
                              help="Update harga tiap komponen yang namanya cocok persis dengan stok saat ini. Komponen custom/manual tidak diubah."):
                     n_updated = 0
-                    for c in edit_list:
+                    for idx, c in enumerate(edit_list):
                         nm = c.get("nama_barang","")
                         if nm in stock_by_name:
                             new_price = float(stock_by_name[nm].get("h1",0) or 0)
                             if new_price != float(c.get("selling_price",0) or 0):
-                                c["selling_price"] = new_price; n_updated += 1
+                                c["selling_price"] = new_price
+                                st.session_state[f"ed_price_{hid}_{idx}"] = int(new_price)
+                                n_updated += 1
                     st.success(f"{n_updated} harga komponen disesuaikan ke stok terbaru" if n_updated else "Semua harga sudah sesuai stok terbaru")
                     st.rerun()
 
@@ -1618,13 +1620,16 @@ def page_build_history():
                                              range(len(stock_opts)), format_func=lambda k: stock_opts[k],
                                              index=match_idx, key=f"ed_pick_{hid}_{i}")
                     prev_key = f"ed_pick_prev_{hid}_{i}"
+                    price_key = f"ed_price_{hid}_{i}"
                     if pick_idx > 0:
                         chosen = all_comps[pick_idx-1]
                         c["nama_barang"] = chosen.get("nama_barang","")
                         c["kategori"] = chosen.get("kategori","")
                         c["kategori_label"] = _PC_CATS.get(chosen.get("kategori",""), chosen.get("kategori",""))
                         if st.session_state.get(prev_key) != pick_idx:
-                            c["selling_price"] = float(chosen.get("h1",0) or 0)
+                            new_price = float(chosen.get("h1",0) or 0)
+                            c["selling_price"] = new_price
+                            st.session_state[price_key] = int(new_price)
                             st.session_state[prev_key] = pick_idx
                     else:
                         st.session_state[prev_key] = 0
@@ -1637,7 +1642,7 @@ def page_build_history():
                         c["qty"] = st.number_input("Qty", min_value=1, value=int(c.get("qty",1) or 1), step=1, key=f"ed_qty_{hid}_{i}")
                     with c2:
                         price_val = float(c.get("selling_price", c.get("h1",0)) or 0)
-                        c["selling_price"] = st.number_input("Harga Satuan (Rp)", min_value=0, value=int(price_val), step=10000, key=f"ed_price_{hid}_{i}")
+                        c["selling_price"] = st.number_input("Harga Satuan (Rp)", min_value=0, value=int(price_val), step=10000, key=price_key)
                     with c3:
                         st.write("")
                         if st.button("🗑️ Hapus", key=f"ed_del_{hid}_{i}"):
