@@ -1419,14 +1419,14 @@ def page_branches():
 # BUILD HISTORY
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_pdf(build_name, build_type, total_price, components, compat_notes, compat_warnings, user):
-    """Generate PDF bytes untuk hasil build PC."""
+    """Generate PDF bytes untuk hasil build PC — hanya tabel komponen."""
     try:
         import io as _io
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
         from reportlab.lib.units import cm
         from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer, HRFlowable
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
         from datetime import datetime
 
         buf = _io.BytesIO()
@@ -1435,34 +1435,12 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
 
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle("title", parent=styles["Title"],
-            fontSize=18, textColor=colors.HexColor("#431061"), spaceAfter=6)
-        sub_style = ParagraphStyle("sub", parent=styles["Normal"],
-            fontSize=10, textColor=colors.HexColor("#555555"), spaceAfter=4)
-        head_style = ParagraphStyle("head", parent=styles["Heading2"],
-            fontSize=12, textColor=colors.HexColor("#431061"), spaceBefore=12, spaceAfter=6)
-        body_style = ParagraphStyle("body", parent=styles["Normal"], fontSize=10, spaceAfter=3)
-        ok_style = ParagraphStyle("ok", parent=styles["Normal"],
-            fontSize=9, textColor=colors.HexColor("#059669"), spaceAfter=2)
-        warn_style = ParagraphStyle("warn", parent=styles["Normal"],
-            fontSize=9, textColor=colors.HexColor("#d97706"), spaceAfter=2)
+            fontSize=15, textColor=colors.HexColor("#431061"), spaceAfter=10)
 
         story = []
-        story.append(Paragraph("KLA Business Suite", sub_style))
-        story.append(Paragraph("Hasil Konfigurasi PC", title_style))
-        story.append(Paragraph("PT KLA Teknologi Indonesia", sub_style))
-        story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#431061")))
-        story.append(Spacer(1, 0.3*cm))
-
-        # Info build
-        now = datetime.now().strftime("%d %B %Y, %H:%M")
-        story.append(Paragraph("<b>Nama Build:</b> " + build_name, body_style))
-        story.append(Paragraph("<b>Tipe:</b> " + build_type, body_style))
-        story.append(Paragraph("<b>Dibuat oleh:</b> " + user.get("full_name","") + " (" + user.get("role_label",user.get("role","")) + ")", body_style))
-        story.append(Paragraph("<b>Tanggal:</b> " + now, body_style))
-        story.append(Spacer(1, 0.4*cm))
+        story.append(Paragraph(build_name, title_style))
 
         # Tabel komponen
-        story.append(Paragraph("Daftar Komponen", head_style))
         table_data = [["No", "Kategori", "Nama Komponen", "Qty", "Harga"]]
         total = 0
         for i, c in enumerate(components):
@@ -1500,24 +1478,6 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
             ("PADDING", (0,0), (-1,-1), 5),
         ]))
         story.append(t)
-        story.append(Spacer(1, 0.4*cm))
-
-        # Kompatibilitas
-        if compat_notes or compat_warnings:
-            story.append(Paragraph("Hasil Pengecekan Kompatibilitas", head_style))
-            for n in compat_notes:
-                story.append(Paragraph("✓ " + n.replace("OK ",""), ok_style))
-            for w in compat_warnings:
-                story.append(Paragraph("⚠ " + w.replace("PERHATIAN ","").replace("TIDAK COCOK ",""), warn_style))
-            story.append(Spacer(1, 0.3*cm))
-
-        # Footer
-        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#CCCCCC")))
-        story.append(Spacer(1, 0.2*cm))
-        story.append(Paragraph("Dokumen ini dibuat otomatis oleh KLA Business Suite. "
-            "Harga dapat berubah sewaktu-waktu. Hubungi cabang KLA terdekat untuk konfirmasi stok.",
-            ParagraphStyle("footer", parent=styles["Normal"], fontSize=7,
-                textColor=colors.HexColor("#999999"), spaceAfter=0)))
 
         doc.build(story)
         buf.seek(0)
@@ -1626,13 +1586,28 @@ def page_build_history():
 
                 try:
                     from modules.storage import load_components
+                    from modules.config import PC_CATEGORIES as _PC_CATS
                     all_comps = load_components() or []
                 except Exception:
-                    all_comps = []
+                    all_comps = []; _PC_CATS = {}
+                stock_by_name = {c.get("nama_barang",""): c for c in all_comps}
                 stock_opts = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
                              [c.get("nama_barang","")+" — "+_fmt_h(c.get("h1",0)) for c in all_comps]
 
                 edit_list = st.session_state[ek]
+
+                if st.button("🔄 Auto-correct harga ke stok terbaru", key=f"ed_autocorrect_{hid}",
+                             help="Update harga tiap komponen yang namanya cocok persis dengan stok saat ini. Komponen custom/manual tidak diubah."):
+                    n_updated = 0
+                    for c in edit_list:
+                        nm = c.get("nama_barang","")
+                        if nm in stock_by_name:
+                            new_price = float(stock_by_name[nm].get("h1",0) or 0)
+                            if new_price != float(c.get("selling_price",0) or 0):
+                                c["selling_price"] = new_price; n_updated += 1
+                    st.success(f"{n_updated} harga komponen disesuaikan ke stok terbaru" if n_updated else "Semua harga sudah sesuai stok terbaru")
+                    st.rerun()
+
                 for i, c in enumerate(edit_list):
                     current_name = c.get("nama_barang", c.get("nama",""))
                     match_idx = 0
@@ -1646,6 +1621,8 @@ def page_build_history():
                     if pick_idx > 0:
                         chosen = all_comps[pick_idx-1]
                         c["nama_barang"] = chosen.get("nama_barang","")
+                        c["kategori"] = chosen.get("kategori","")
+                        c["kategori_label"] = _PC_CATS.get(chosen.get("kategori",""), chosen.get("kategori",""))
                         if st.session_state.get(prev_key) != pick_idx:
                             c["selling_price"] = float(chosen.get("h1",0) or 0)
                             st.session_state[prev_key] = pick_idx
@@ -1669,6 +1646,16 @@ def page_build_history():
                 if st.button("➕ Tambah Komponen", key=f"ed_add_{hid}"):
                     edit_list.append({"nama_barang":"", "kategori_label":"Lainnya", "qty":1, "selling_price":0})
                     st.rerun()
+
+                try:
+                    from modules.pc_builder import check_compat
+                    compat_input = [c for c in edit_list if c.get("kategori")]
+                    if compat_input:
+                        ed_notes, ed_warns = check_compat(compat_input)
+                        for n in ed_notes: st.success(n)
+                        for w in ed_warns: st.warning(w)
+                except Exception:
+                    pass
 
                 new_total = sum(float(c.get("selling_price",0) or 0) * int(c.get("qty",1) or 1) for c in edit_list)
                 st.markdown("**Total baru: " + _fmt_h(new_total) + "**")
