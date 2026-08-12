@@ -883,6 +883,7 @@ def page_pcbuilder():
             else:
                 st.session_state["ag_result"] = result
                 st.session_state["ag_alts"] = build_alternatives(filtered_comps, bt, budget)
+                st.session_state["ag_saved_flag"] = False
 
         result = st.session_state.get("ag_result")
         if result:
@@ -911,12 +912,21 @@ def page_pcbuilder():
                             import json as _j
                             from modules.db import save_build_history
                             save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j.dumps(result["components"],ensure_ascii=False,default=str))
+                            st.session_state["ag_saved_flag"]=True
                             st.success("Build tersimpan! Lihat di Riwayat Build.")
                         except Exception as e: st.error("Gagal: "+str(e))
                 with c_sv2:
                     pdf=_build_pdf(bn,result["build_type"],result["total_price"],result["components"],result.get("compat_notes",[]),result.get("compat_warnings",[]),user)
                     if pdf:
-                        st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag")
+                        def _autosave_ag_download():
+                            if not st.session_state.get("ag_saved_flag"):
+                                try:
+                                    import json as _j2
+                                    from modules.db import save_build_history as _sbh
+                                    _sbh(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j2.dumps(result["components"],ensure_ascii=False,default=str))
+                                    st.session_state["ag_saved_flag"]=True
+                                except Exception: pass
+                        st.download_button("📥 Download PDF (auto-simpan)",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag",on_click=_autosave_ag_download)
             with col2:
                 st.subheader("🤖 Penjelasan AI")
                 try:
@@ -1109,12 +1119,22 @@ def page_pcbuilder():
                         import json as _j
                         from modules.db import save_build_history
                         save_build_history(user["id"],user.get("branch",""),bn,"Custom",0,total,_j.dumps(parts,ensure_ascii=False,default=str))
+                        st.session_state["cb_saved_signature"]=(bn, round(total), len(parts))
                         st.success("Build tersimpan! Lihat di Riwayat Build.")
                     except Exception as e: st.error("Gagal: "+str(e))
             with c_sv2:
                 pdf=_build_pdf(bn,"Custom",total,parts,notes if compat_comps else [],warns if compat_comps else [],user)
                 if pdf:
-                    st.download_button("📥 Download PDF",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_custom")
+                    _cb_sig = (bn, round(total), len(parts))
+                    def _autosave_cb_download():
+                        if st.session_state.get("cb_saved_signature") != _cb_sig:
+                            try:
+                                import json as _j2
+                                from modules.db import save_build_history as _sbh
+                                _sbh(user["id"],user.get("branch",""),bn,"Custom",0,total,_j2.dumps(parts,ensure_ascii=False,default=str))
+                                st.session_state["cb_saved_signature"]=_cb_sig
+                            except Exception: pass
+                    st.download_button("📥 Download PDF (auto-simpan)",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_custom",on_click=_autosave_cb_download)
         else:
             st.info("Pilih minimal satu komponen untuk melihat total harga.")
 
@@ -1595,6 +1615,44 @@ def page_build_history():
                         mime="application/pdf",
                         key="dl_"+str(h.get("id",""))
                     )
+
+            st.divider()
+            with st.expander("✏️ Edit Build (custom komponen)"):
+                hid = h.get("id","")
+                ek = f"edit_comps_{hid}"
+                if ek not in st.session_state:
+                    st.session_state[ek] = [dict(c) for c in comps]
+                edit_name = st.text_input("Nama Build", value=h.get("build_name","Build"), key=f"edit_name_{hid}")
+                edit_list = st.session_state[ek]
+                for i, c in enumerate(edit_list):
+                    c1,c2,c3,c4 = st.columns([3,1,1.3,0.6])
+                    with c1:
+                        c["nama_barang"] = st.text_input("Nama", value=c.get("nama_barang", c.get("nama","")), key=f"ed_nm_{hid}_{i}")
+                    with c2:
+                        c["qty"] = st.number_input("Qty", min_value=1, value=int(c.get("qty",1) or 1), step=1, key=f"ed_qty_{hid}_{i}")
+                    with c3:
+                        price_val = float(c.get("selling_price", c.get("h1",0)) or 0)
+                        c["selling_price"] = st.number_input("Harga Satuan (Rp)", min_value=0, value=int(price_val), step=10000, key=f"ed_price_{hid}_{i}")
+                    with c4:
+                        st.write("")
+                        if st.button("🗑️", key=f"ed_del_{hid}_{i}"):
+                            edit_list.pop(i); st.rerun()
+                if st.button("➕ Tambah Komponen", key=f"ed_add_{hid}"):
+                    edit_list.append({"nama_barang":"", "kategori_label":"Lainnya", "qty":1, "selling_price":0})
+                    st.rerun()
+
+                new_total = sum(float(c.get("selling_price",0) or 0) * int(c.get("qty",1) or 1) for c in edit_list)
+                st.markdown("**Total baru: " + _fmt_h(new_total) + "**")
+                if st.button("💾 Simpan Perubahan", type="primary", key=f"ed_save_{hid}"):
+                    import json as _json2
+                    from modules.db import update_build_history
+                    clean_list = [c for c in edit_list if (c.get("nama_barang") or "").strip()]
+                    if update_build_history(hid, edit_name, new_total, _json2.dumps(clean_list, ensure_ascii=False, default=str)):
+                        del st.session_state[ek]
+                        st.success("Build berhasil diperbarui")
+                        st.rerun()
+                    else:
+                        st.error("Gagal menyimpan perubahan")
 
 def _fmt_h(v):
     try:

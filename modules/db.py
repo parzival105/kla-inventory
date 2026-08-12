@@ -98,7 +98,7 @@ def get_analysis_meta():
 
 def save_build_history(user_id,branch,build_name,build_type,budget,total_price,components_json="",ai_notes=""):
     import json
-    _post("build_history",{"user_id":user_id,"branch":branch,"build_name":build_name,"build_type":build_type,"budget":budget,"total_price":total_price,"components":components_json[:5000] if components_json else "","ai_notes":ai_notes[:500] if ai_notes else "","created_at":datetime.utcnow().isoformat()+"Z"})
+    return _post("build_history",{"user_id":user_id,"branch":branch,"build_name":build_name,"build_type":build_type,"budget":budget,"total_price":total_price,"components":components_json[:5000] if components_json else "","ai_notes":ai_notes[:500] if ai_notes else "","created_at":datetime.utcnow().isoformat()+"Z"})
 
 def log_action(user_id,username,action,detail=""):
     try: _post("audit_log",{"user_id":user_id,"username":username,"action":action,"detail":detail,"created_at":datetime.utcnow().isoformat()+"Z"})
@@ -181,6 +181,16 @@ def update_build_status(build_id, status, note=""):
         _patch("build_history", {"id": str(build_id)}, {
             "status": status, "status_note": note or "",
             "status_updated_at": datetime.utcnow().isoformat() + "Z"
+        })
+        return True
+    except Exception:
+        return False
+
+def update_build_history(build_id, build_name, total_price, components_json):
+    try:
+        _patch("build_history", {"id": str(build_id)}, {
+            "build_name": build_name, "total_price": total_price,
+            "components": components_json[:5000] if components_json else ""
         })
         return True
     except Exception:
