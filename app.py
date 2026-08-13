@@ -1587,12 +1587,16 @@ def page_build_history():
                 try:
                     from modules.storage import load_components
                     from modules.config import PC_CATEGORIES as _PC_CATS
+                    from modules.pc_builder import _n as _ed_n, _find_cpu_rule as _ed_find_cpu_rule
                     all_comps = load_components() or []
                 except Exception:
                     all_comps = []; _PC_CATS = {}
+                    def _ed_n(v): return str(v).lower()
+                    def _ed_find_cpu_rule(_): return None, None
                 stock_by_name = {c.get("nama_barang",""): c for c in all_comps}
-                stock_opts = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
-                             [c.get("nama_barang","")+" — "+_fmt_h(c.get("h1",0)) for c in all_comps]
+
+                CAT_OPTS = list(_PC_CATS.keys()) + ["LAINNYA"]
+                CAT_LABELS = dict(_PC_CATS); CAT_LABELS["LAINNYA"] = "➕ Lainnya (Aksesoris/Custom)"
 
                 edit_list = st.session_state[ek]
 
@@ -1610,29 +1614,65 @@ def page_build_history():
                     st.success(f"{n_updated} harga komponen disesuaikan ke stok terbaru" if n_updated else "Semua harga sudah sesuai stok terbaru")
                     st.rerun()
 
+                # Deteksi CPU & aturan kompatibilitas (socket + tipe RAM) dari komponen yang sudah kepilih
+                cpu_item_name = next((c.get("nama_barang","") for c in edit_list if c.get("kategori")=="PROCESSOR"), "")
+                _, cpu_rule = _ed_find_cpu_rule(cpu_item_name) if cpu_item_name else (None, None)
+                if cpu_rule:
+                    st.caption(f"🧠 Terdeteksi CPU socket **{cpu_rule['socket']}** — Motherboard & RAM di bawah otomatis difilter yang kompatibel.")
+
                 for i, c in enumerate(edit_list):
                     current_name = c.get("nama_barang", c.get("nama",""))
+                    detected_cat = c.get("kategori") if c.get("kategori") in CAT_OPTS else "LAINNYA"
+                    cat_choice = st.selectbox(f"Kategori — Komponen #{i+1}", CAT_OPTS,
+                                               index=CAT_OPTS.index(detected_cat),
+                                               format_func=lambda k: CAT_LABELS.get(k,k), key=f"ed_cat_{hid}_{i}")
+                    c["kategori"] = cat_choice
+                    c["kategori_label"] = CAT_LABELS.get(cat_choice, cat_choice)
+
+                    if cat_choice == "LAINNYA":
+                        cat_comps = all_comps
+                    else:
+                        cat_comps = [cc for cc in all_comps if cc.get("kategori") == cat_choice]
+                        if cat_choice == "MOTHERBOARD" and cpu_rule:
+                            valid_chips = [ch.lower() for ch in cpu_rule["chipsets"]]
+                            filtered = [cc for cc in cat_comps if any(ch in _ed_n(cc.get("nama_barang","")) for ch in valid_chips)]
+                            cat_comps = filtered or cat_comps
+                        elif cat_choice in ("RAM LONGDIMM","RAM SODIMM") and cpu_rule:
+                            req_ram = cpu_rule["ram"]
+                            def _ram_ok(nm):
+                                rn = _ed_n(nm)
+                                if "ddr5" in rn: return "DDR5" in req_ram
+                                if "ddr4" in rn: return "DDR4" in req_ram
+                                if "ddr3" in rn: return "DDR3" in req_ram
+                                return True
+                            filtered = [cc for cc in cat_comps if _ram_ok(cc.get("nama_barang",""))]
+                            cat_comps = filtered or cat_comps
+
+                    row_stock_opts = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
+                                      [cc.get("nama_barang","")+" — "+_fmt_h(cc.get("h1",0)) for cc in cat_comps]
                     match_idx = 0
-                    for j, cc in enumerate(all_comps):
+                    for j, cc in enumerate(cat_comps):
                         if cc.get("nama_barang","") == current_name:
                             match_idx = j+1; break
-                    pick_idx = st.selectbox("Komponen #"+str(i+1)+" — pilih dari stok atau ketik manual",
-                                             range(len(stock_opts)), format_func=lambda k: stock_opts[k],
+
+                    pick_idx = st.selectbox("Pilih dari stok atau ketik manual",
+                                             range(len(row_stock_opts)), format_func=lambda k: row_stock_opts[k],
                                              index=match_idx, key=f"ed_pick_{hid}_{i}")
                     prev_key = f"ed_pick_prev_{hid}_{i}"
                     price_key = f"ed_price_{hid}_{i}"
                     if pick_idx > 0:
-                        chosen = all_comps[pick_idx-1]
+                        chosen = cat_comps[pick_idx-1]
                         c["nama_barang"] = chosen.get("nama_barang","")
-                        c["kategori"] = chosen.get("kategori","")
-                        c["kategori_label"] = _PC_CATS.get(chosen.get("kategori",""), chosen.get("kategori",""))
-                        if st.session_state.get(prev_key) != pick_idx:
+                        c["kategori"] = chosen.get("kategori","") or cat_choice
+                        c["kategori_label"] = CAT_LABELS.get(c["kategori"], c["kategori"])
+                        sig = (cat_choice, pick_idx)
+                        if st.session_state.get(prev_key) != sig:
                             new_price = float(chosen.get("h1",0) or 0)
                             c["selling_price"] = new_price
                             st.session_state[price_key] = int(new_price)
-                            st.session_state[prev_key] = pick_idx
+                            st.session_state[prev_key] = sig
                     else:
-                        st.session_state[prev_key] = 0
+                        st.session_state[prev_key] = (cat_choice, 0)
                         c["nama_barang"] = st.text_input("Nama komponen (manual)",
                                                           value=current_name if match_idx==0 else "",
                                                           key=f"ed_nm_{hid}_{i}")
