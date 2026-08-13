@@ -905,7 +905,7 @@ def page_pcbuilder():
                 if "ag_build_name" not in st.session_state:
                     st.session_state["ag_build_name"]=result["build_type"]+" Rp"+str(int(result["total_price"]//1e6))+"Jt"
                 bn=st.text_input("Nama Build",key="ag_build_name")
-                c_sv1,c_sv2=st.columns(2)
+                c_sv1,c_sv2,c_sv3=st.columns(3)
                 with c_sv1:
                     if st.button("💾 Simpan Build",type="primary",key="btn_save_ag"):
                         try:
@@ -927,6 +927,11 @@ def page_pcbuilder():
                                     st.session_state["ag_saved_flag"]=True
                                 except Exception: pass
                         st.download_button("📥 Download PDF (auto-simpan)",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag",on_click=_autosave_ag_download)
+                with c_sv3:
+                    xls_ag=_build_excel(bn,result["components"])
+                    if xls_ag:
+                        st.download_button("📊 Download Excel",data=xls_ag,file_name=bn.replace(" ","_")+".xlsx",
+                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="xls_ag")
             with col2:
                 st.subheader("🤖 Penjelasan AI")
                 try:
@@ -1112,7 +1117,7 @@ def page_pcbuilder():
                 p["qty"]=qty_map[slot]
                 p.setdefault("selling_price",float(p.get("h1",0)))
                 p.setdefault("kategori_label",PC_CATEGORIES.get(p.get("kategori",""),p.get("kategori","")))
-            c_sv1,c_sv2=st.columns(2)
+            c_sv1,c_sv2,c_sv3=st.columns(3)
             with c_sv1:
                 if st.button("💾 Simpan Build",type="primary",key="btn_save_cb"):
                     try:
@@ -1135,6 +1140,11 @@ def page_pcbuilder():
                                 st.session_state["cb_saved_signature"]=_cb_sig
                             except Exception: pass
                     st.download_button("📥 Download PDF (auto-simpan)",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_custom",on_click=_autosave_cb_download)
+            with c_sv3:
+                xls_cb=_build_excel(bn,parts)
+                if xls_cb:
+                    st.download_button("📊 Download Excel",data=xls_cb,file_name=bn.replace(" ","_")+".xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="xls_cb")
         else:
             st.info("Pilih minimal satu komponen untuk melihat total harga.")
 
@@ -1418,6 +1428,41 @@ def page_branches():
 # ══════════════════════════════════════════════════════════════════════════════
 # BUILD HISTORY
 # ══════════════════════════════════════════════════════════════════════════════
+def _build_excel(build_name, components):
+    """Generate file Excel (.xlsx) berisi tabel komponen — hasil copy-paste dijamin rapi
+    per kolom karena ini data tabel asli, bukan rekonstruksi dari teks PDF."""
+    try:
+        import io as _io
+        import pandas as _pd
+        rows = []
+        total = 0
+        for i, c in enumerate(components):
+            qty = int(c.get("qty", 1) or 1)
+            harga_satuan = float(c.get("selling_price", c.get("h1", 0)) or 0)
+            subtotal = harga_satuan * qty
+            total += subtotal
+            rows.append({
+                "No": i+1,
+                "Kategori": c.get("kategori_label", c.get("kategori","")) or "-",
+                "Nama Komponen": c.get("nama_barang", c.get("nama","")) or "-",
+                "Qty": qty,
+                "Harga Satuan": harga_satuan,
+                "Subtotal": subtotal,
+            })
+        rows.append({"No":"","Kategori":"","Nama Komponen":"","Qty":"","Harga Satuan":"TOTAL","Subtotal":total})
+        df = _pd.DataFrame(rows)
+        buf = _io.BytesIO()
+        with _pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+            df.to_excel(writer, sheet_name="Build", index=False)
+            wb = writer.book; ws = writer.sheets["Build"]
+            ws.set_column("A:A", 5); ws.set_column("B:B", 16)
+            ws.set_column("C:C", 40); ws.set_column("D:D", 6)
+            ws.set_column("E:F", 16)
+        buf.seek(0)
+        return buf.read()
+    except Exception:
+        return None
+
 def _build_pdf(build_name, build_type, total_price, components, compat_notes, compat_warnings, user):
     """Generate PDF bytes untuk hasil build PC — hanya tabel komponen."""
     try:
@@ -1571,15 +1616,27 @@ def page_build_history():
                     h.get("build_type","Custom"),
                     tp, comps, [], [], user
                 )
-                if pdf_bytes:
-                    fname = h.get("build_name","build").replace(" ","_") + ".pdf"
-                    st.download_button(
-                        "📥 Download PDF",
-                        data=pdf_bytes,
-                        file_name=fname,
-                        mime="application/pdf",
-                        key="dl_"+str(h.get("id",""))
-                    )
+                c_dl1, c_dl2 = st.columns(2)
+                with c_dl1:
+                    if pdf_bytes:
+                        fname = h.get("build_name","build").replace(" ","_") + ".pdf"
+                        st.download_button(
+                            "📥 Download PDF",
+                            data=pdf_bytes,
+                            file_name=fname,
+                            mime="application/pdf",
+                            key="dl_"+str(h.get("id",""))
+                        )
+                with c_dl2:
+                    xls_hist = _build_excel(h.get("build_name","Build"), comps)
+                    if xls_hist:
+                        st.download_button(
+                            "📊 Download Excel",
+                            data=xls_hist,
+                            file_name=h.get("build_name","build").replace(" ","_") + ".xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="xls_"+str(h.get("id",""))
+                        )
 
             st.divider()
             with st.expander("✏️ Edit Build (custom komponen)"):
