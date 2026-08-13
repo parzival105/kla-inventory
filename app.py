@@ -1436,12 +1436,17 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle("title", parent=styles["Title"],
             fontSize=15, textColor=colors.HexColor("#431061"), spaceAfter=10)
+        cell_style = ParagraphStyle("cell", parent=styles["Normal"], fontSize=9, leading=12)
+        cell_style_r = ParagraphStyle("cellr", parent=cell_style, alignment=2)   # rata kanan
+        cell_style_c = ParagraphStyle("cellc", parent=cell_style, alignment=1)   # rata tengah
+        head_style = ParagraphStyle("headcell", parent=cell_style, textColor=colors.white, fontName="Helvetica-Bold")
 
         story = []
         story.append(Paragraph(build_name, title_style))
 
-        # Tabel komponen
-        table_data = [["No", "Kategori", "Nama Komponen", "Qty", "Harga"]]
+        # Tabel komponen — tiap sel dibungkus Paragraph terpisah supaya saat teks
+        # di-copy dari PDF, tiap baris/kolom tetap terpisah rapi (tidak jadi satu blok teks).
+        table_data = [[Paragraph(x, head_style) for x in ["No","Kategori","Nama Komponen","Qty","Harga"]]]
         total = 0
         for i, c in enumerate(components):
             qty = int(c.get("qty", 1) or 1)
@@ -1454,28 +1459,28 @@ def _build_pdf(build_name, build_type, total_price, components, compat_notes, co
                 if a>=1e3: return "Rp "+f"{a/1e3:.0f}"+"Rb"
                 return "Rp "+f"{a:,.0f}"
             table_data.append([
-                str(i+1),
-                c.get("kategori_label", c.get("kategori","")),
-                c.get("nama_barang", c.get("nama","")),
-                str(qty),
-                fs(harga)
+                Paragraph(str(i+1), cell_style_c),
+                Paragraph(c.get("kategori_label", c.get("kategori","")) or "-", cell_style),
+                Paragraph(c.get("nama_barang", c.get("nama","")) or "-", cell_style),
+                Paragraph(str(qty), cell_style_c),
+                Paragraph(fs(harga), cell_style_r),
             ])
-        table_data.append(["", "", "", "TOTAL", fs(total)])
+        table_data.append([Paragraph("",cell_style), Paragraph("",cell_style), Paragraph("",cell_style),
+                            Paragraph("TOTAL", ParagraphStyle("tot", parent=cell_style_r, fontName="Helvetica-Bold")),
+                            Paragraph(fs(total), ParagraphStyle("tot2", parent=cell_style_r, fontName="Helvetica-Bold"))])
 
         t = Table(table_data, colWidths=[1*cm, 3*cm, 7.5*cm, 1.5*cm, 2.5*cm])
         t.setStyle(TableStyle([
             ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#431061")),
-            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
-            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
             ("FONTSIZE", (0,0), (-1,-1), 9),
             ("ROWBACKGROUNDS", (0,1), (-1,-2), [colors.HexColor("#F9F6FF"), colors.white]),
             ("BACKGROUND", (0,-1), (-1,-1), colors.HexColor("#EDE9F6")),
-            ("FONTNAME", (0,-1), (-1,-1), "Helvetica-Bold"),
             ("GRID", (0,0), (-1,-1), 0.3, colors.HexColor("#CCCCCC")),
-            ("ALIGN", (3,0), (4,-1), "RIGHT"),
-            ("ALIGN", (0,0), (0,-1), "CENTER"),
             ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-            ("PADDING", (0,0), (-1,-1), 5),
+            ("LEFTPADDING", (0,0), (-1,-1), 8),
+            ("RIGHTPADDING", (0,0), (-1,-1), 8),
+            ("TOPPADDING", (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
         ]))
         story.append(t)
 
