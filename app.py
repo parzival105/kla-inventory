@@ -930,8 +930,16 @@ def page_pcbuilder():
                 with c_sv3:
                     xls_ag=_build_excel(bn,result["components"])
                     if xls_ag:
-                        st.download_button("📊 Download Excel",data=xls_ag,file_name=bn.replace(" ","_")+".xlsx",
-                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="xls_ag")
+                        def _autosave_ag_excel():
+                            if not st.session_state.get("ag_saved_flag"):
+                                try:
+                                    import json as _j3
+                                    from modules.db import save_build_history as _sbh2
+                                    _sbh2(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j3.dumps(result["components"],ensure_ascii=False,default=str))
+                                    st.session_state["ag_saved_flag"]=True
+                                except Exception: pass
+                        st.download_button("📊 Download Excel (auto-simpan)",data=xls_ag,file_name=bn.replace(" ","_")+".xlsx",
+                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="xls_ag",on_click=_autosave_ag_excel)
             with col2:
                 st.subheader("🤖 Penjelasan AI")
                 try:
@@ -1143,8 +1151,17 @@ def page_pcbuilder():
             with c_sv3:
                 xls_cb=_build_excel(bn,parts)
                 if xls_cb:
-                    st.download_button("📊 Download Excel",data=xls_cb,file_name=bn.replace(" ","_")+".xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="xls_cb")
+                    _cb_sig_xls = (bn, round(total), len(parts))
+                    def _autosave_cb_excel():
+                        if st.session_state.get("cb_saved_signature") != _cb_sig_xls:
+                            try:
+                                import json as _j3
+                                from modules.db import save_build_history as _sbh2
+                                _sbh2(user["id"],user.get("branch",""),bn,"Custom",0,total,_j3.dumps(parts,ensure_ascii=False,default=str))
+                                st.session_state["cb_saved_signature"]=_cb_sig_xls
+                            except Exception: pass
+                    st.download_button("📊 Download Excel (auto-simpan)",data=xls_cb,file_name=bn.replace(" ","_")+".xlsx",
+                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="xls_cb",on_click=_autosave_cb_excel)
         else:
             st.info("Pilih minimal satu komponen untuk melihat total harga.")
 
