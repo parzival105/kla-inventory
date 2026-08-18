@@ -149,6 +149,15 @@ def purchasing_save(request_id, actor, cat_results, extras_results, note=""):
     push_notification(request_id, "store_leader", req.get("branch"), "ready_to_check",
                        f"PC Request {req.get('request_number','')} siap dicek & ditentukan harga jualnya")
 
+def revert_to_purchasing(request_id, actor, note=""):
+    """Kembalikan request dari Store Leader Check ke Admin Purchasing — dipakai kalau
+    hasil sourcing sebelumnya belum lengkap/salah kirim (mis. tidak sengaja submit)."""
+    req = get_request(request_id)
+    _touch(request_id, {"status": "submitted"})
+    log_history(request_id, actor, "Dikembalikan ke Purchasing untuk dilengkapi/diedit ulang", note)
+    push_notification(request_id, "admin_purchasing", req.get("branch"), "new_request",
+                       f"PC Request {req.get('request_number','')} dikembalikan — mohon lengkapi/perbaiki komponen")
+
 # ── Store Leader: cek & tetapkan harga jual, atau reject ──────────────────────
 def store_leader_set_price(request_id, actor, sell_price, note=""):
     req = get_request(request_id)

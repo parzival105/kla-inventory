@@ -6,7 +6,7 @@ from datetime import datetime, date
 from modules.pcreq_db import (
     STATUSES, STATUS_MAP, CATEGORIES, NODEAL_REASONS,
     create_request, submit_request, get_request, get_requests, get_extras, update_extra,
-    get_history, purchasing_save, store_leader_set_price, store_leader_reject,
+    get_history, purchasing_save, revert_to_purchasing, store_leader_set_price, store_leader_reject,
     sales_deal, sales_no_deal, get_notifications, mark_notification_read,
     mark_all_notifications_read, get_dashboard_stats,
 )
@@ -244,6 +244,9 @@ def render_detail(user):
     # ── Admin Purchasing: cari komponen ─────────────────────────────────────
     elif status == "submitted" and is_purchasing(user):
         st.subheader("🔎 Admin Purchasing — Cari Komponen")
+        already_filled = any(r.get(f"{cat}_found") for cat,_ in CATEGORIES) or any(e.get("found") for e in extras)
+        if already_filled:
+            st.info("Beberapa komponen sudah pernah diisi sebelumnya (kemungkinan request ini dikembalikan) — data lama sudah dimuat ulang di bawah, tinggal lengkapi/perbaiki yang masih kosong lalu simpan lagi.")
         cat_results = {}
         with st.form("purchasing_form"):
             for cat, label in CATEGORIES:
@@ -252,15 +255,15 @@ def render_detail(user):
                     continue
                 st.markdown(f"**{label}** — diminta: _{spec}_")
                 c1,c2 = st.columns(2)
-                with c1: found = st.text_input("Produk/Spek Final", key=f"pf_found_{cat}")
-                with c2: price = st.number_input("Harga (Rp)", min_value=0, step=10000, key=f"pf_price_{cat}")
+                with c1: found = st.text_input("Produk/Spek Final", value=r.get(f"{cat}_found") or "", key=f"pf_found_{cat}")
+                with c2: price = st.number_input("Harga (Rp)", min_value=0, value=int(r.get(f"{cat}_price") or 0), step=10000, key=f"pf_price_{cat}")
                 cat_results[cat] = {"found": found, "price": price}
             extras_results = {}
             for ex in extras:
                 st.markdown(f"**{ex.get('label','')}** (x{ex.get('qty',1)}) — diminta: _{ex.get('spec') or '-'}_")
                 c1,c2 = st.columns(2)
-                with c1: efound = st.text_input("Produk/Spek Final", key=f"pf_efound_{ex['id']}")
-                with c2: eprice = st.number_input("Harga (Rp)", min_value=0, step=10000, key=f"pf_eprice_{ex['id']}")
+                with c1: efound = st.text_input("Produk/Spek Final", value=ex.get("found") or "", key=f"pf_efound_{ex['id']}")
+                with c2: eprice = st.number_input("Harga (Rp)", min_value=0, value=int(ex.get("price") or 0), step=10000, key=f"pf_eprice_{ex['id']}")
                 extras_results[ex["id"]] = {"found": efound, "price": eprice}
             note = st.text_area("Catatan Purchasing (opsional)")
             if st.form_submit_button("✅ Simpan — Kirim ke Store Leader", type="primary"):
@@ -272,6 +275,18 @@ def render_detail(user):
         st.subheader("🔎 Store Leader Check")
         total_hpp = sum(float(r.get(f"{cat}_price") or 0) for cat,_ in CATEGORIES) + sum(float(e.get("price") or 0) for e in extras)
         st.info(f"Total harga komponen dari Purchasing: {_fmt(total_hpp)}")
+
+        missing = [label for cat,label in CATEGORIES if r.get(f"{cat}_spec") and not r.get(f"{cat}_found")]
+        if missing:
+            st.warning("⚠️ Ada komponen yang diminta tapi belum diisi Purchasing: " + ", ".join(missing) +
+                       ". Kalau ini kejadian tidak sengaja (mis. ke-Enter sebelum semua terisi), kembalikan dulu ke Purchasing supaya dilengkapi.")
+            with st.popover("↩️ Kembalikan ke Purchasing", use_container_width=True):
+                rv_note = st.text_area("Catatan untuk Purchasing (opsional)", key="pcr_revert_note")
+                if st.button("Konfirmasi Kembalikan", key="pcr_revert_confirm"):
+                    revert_to_purchasing(rid, user["full_name"], rv_note)
+                    st.success("Dikembalikan ke Purchasing"); st.rerun()
+            st.divider()
+
         c1,c2 = st.columns(2)
         with c1:
             with st.form("sl_price_form"):
