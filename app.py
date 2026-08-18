@@ -1688,7 +1688,7 @@ def page_build_history():
                             new_price = float(stock_by_name[nm].get("h1",0) or 0)
                             if new_price != float(c.get("selling_price",0) or 0):
                                 c["selling_price"] = new_price
-                                st.session_state[f"ed_price_{hid}_{idx}"] = int(new_price)
+                                st.session_state[f"ed_price_{hid}_{idx}"] = _rp_str(new_price)
                                 n_updated += 1
                     st.success(f"{n_updated} harga komponen disesuaikan ke stok terbaru" if n_updated else "Semua harga sudah sesuai stok terbaru")
                     st.rerun()
@@ -1748,7 +1748,7 @@ def page_build_history():
                         if st.session_state.get(prev_key) != sig:
                             new_price = float(chosen.get("h1",0) or 0)
                             c["selling_price"] = new_price
-                            st.session_state[price_key] = int(new_price)
+                            st.session_state[price_key] = _rp_str(new_price)
                             st.session_state[prev_key] = sig
                     else:
                         st.session_state[prev_key] = (cat_choice, 0)
@@ -1761,7 +1761,7 @@ def page_build_history():
                         c["qty"] = st.number_input("Qty", min_value=1, value=int(c.get("qty",1) or 1), step=1, key=f"ed_qty_{hid}_{i}")
                     with c2:
                         price_val = float(c.get("selling_price", c.get("h1",0)) or 0)
-                        c["selling_price"] = st.number_input("Harga Satuan (Rp)", min_value=0, value=int(price_val), step=10000, key=price_key)
+                        c["selling_price"] = rupiah_input("Harga Satuan (Rp)", key=price_key, default=price_val)
                     with c3:
                         st.write("")
                         if st.button("🗑️ Hapus", key=f"ed_del_{hid}_{i}"):
@@ -1801,6 +1801,36 @@ def _fmt_h(v):
         if a>=1e3: return "Rp "+f"{a/1e3:.0f}"+"Rb"
         return "Rp "+f"{a:,.0f}"
     except: return "Rp 0"
+
+def _fmt_rp(v):
+    """Format lengkap dengan titik ribuan, mis. Rp 4.090.000 (tanpa disingkat Jt/Rb)."""
+    try:
+        v=float(v)
+        return "Rp " + f"{v:,.0f}".replace(",", ".")
+    except: return "Rp 0"
+
+def _rp_digits(s):
+    """Ambil digit murni dari string berformat titik, mis. '4.090.000' -> 4090000 (int)."""
+    d = "".join(ch for ch in str(s or "") if ch.isdigit())
+    return int(d) if d else 0
+
+def _rp_str(v):
+    """Format angka jadi string bertitik tanpa prefix 'Rp', mis. 4090000 -> '4.090.000'."""
+    try:
+        n = int(float(v))
+        return f"{n:,}".replace(",", ".") if n else ""
+    except: return ""
+
+def rupiah_input(label, key, default=0, help=None):
+    """Text input yang auto-format jadi 'Rp 4.090.000' (titik ribuan) begitu fokus pindah/Enter.
+    Mengembalikan nilai integer murni untuk dipakai di kode. TIDAK bisa dipakai di dalam st.form
+    (Streamlit tidak menjalankan on_change widget di dalam form sampai form disubmit)."""
+    if key not in st.session_state:
+        st.session_state[key] = _rp_str(default)
+    def _reformat():
+        st.session_state[key] = _rp_str(_rp_digits(st.session_state[key]))
+    st.text_input(label, key=key, on_change=_reformat, help=help, placeholder="0")
+    return _rp_digits(st.session_state[key])
 
 
 # ══════════════════════════════════════════════════════════════════════════════

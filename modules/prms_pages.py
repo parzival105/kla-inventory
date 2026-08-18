@@ -46,6 +46,26 @@ def _fmt(n):
     try: return f"Rp {int(n):,}".replace(",", ".")
     except: return "Rp 0"
 
+def _rp_digits(s):
+    d = "".join(ch for ch in str(s or "") if ch.isdigit())
+    return int(d) if d else 0
+
+def _rp_str(v):
+    try:
+        n = int(float(v))
+        return f"{n:,}".replace(",", ".") if n else ""
+    except: return ""
+
+def rupiah_input(label, key, default=0, help=None):
+    """Text input auto-format 'Rp x.xxx.xxx' (titik ribuan) begitu fokus pindah/Enter.
+    Mengembalikan integer murni. TIDAK dipakai di dalam st.form."""
+    if key not in st.session_state:
+        st.session_state[key] = _rp_str(default)
+    def _reformat():
+        st.session_state[key] = _rp_str(_rp_digits(st.session_state[key]))
+    st.text_input(label, key=key, on_change=_reformat, help=help, placeholder="0")
+    return _rp_digits(st.session_state[key])
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
@@ -169,7 +189,7 @@ def render_new_request(user):
                                      if cats else st.text_input("Kategori", value=item["category"], key=f"ct_{i}"))
             with c3:
                 item["qty"] = st.number_input("Qty", min_value=1, value=int(item["qty"]), step=1, key=f"qt_{i}")
-                item["budget_customer"] = st.number_input("Budget Customer (Rp)", min_value=0, value=int(item["budget_customer"]), step=100000, key=f"bg_{i}")
+                item["budget_customer"] = rupiah_input("Budget Customer (Rp)", key=f"bg_{i}", default=item["budget_customer"])
             c1, c2 = st.columns(2)
             with c1: item["ref_link"] = st.text_input("Link Referensi (Opsional)", value=item["ref_link"], key=f"rl_{i}")
             with c2: item["urgency"] = st.selectbox("Tingkat Urgensi", ["Low","Medium","High"],
@@ -426,14 +446,17 @@ def _render_item_card(user, it):
         choice = st.radio("Hasil Pencarian Unit", ["Unit Ditemukan","Tidak Ditemukan"], key=f"pur_choice_{item_id}")
         if choice == "Unit Ditemukan":
             suppliers = [s["name"] for s in get_master("supplier")]
-            with st.form(f"purchasing_found_form_{item_id}"):
-                supplier = st.selectbox("Supplier", suppliers) if suppliers else st.text_input("Supplier")
-                c1, c2 = st.columns(2)
-                with c1: price = st.number_input("Harga (Rp)", min_value=0, step=10000); stock = st.text_input("Stock")
-                with c2: eta = st.text_input("ETA"); po = st.text_input("Nomor PO (Opsional)")
-                if st.form_submit_button("💬 Simpan — Siap Ditawarkan ke Sales", type="primary"):
-                    purchasing_found(item_id, user["full_name"], supplier, price, stock, eta, po)
-                    st.success("Unit ditemukan — sales bisa langsung menawarkan"); st.rerun()
+            supplier = st.selectbox("Supplier", suppliers, key=f"puf_sup_{item_id}") if suppliers else st.text_input("Supplier", key=f"puf_sup_{item_id}")
+            c1, c2 = st.columns(2)
+            with c1:
+                price = rupiah_input("Harga (Rp)", key=f"puf_price_{item_id}", default=0)
+                stock = st.text_input("Stock", key=f"puf_stock_{item_id}")
+            with c2:
+                eta = st.text_input("ETA", key=f"puf_eta_{item_id}")
+                po = st.text_input("Nomor PO (Opsional)", key=f"puf_po_{item_id}")
+            if st.button("💬 Simpan — Siap Ditawarkan ke Sales", type="primary", key=f"puf_submit_{item_id}"):
+                purchasing_found(item_id, user["full_name"], supplier, price, stock, eta, po)
+                st.success("Unit ditemukan — sales bisa langsung menawarkan"); st.rerun()
         else:
             with st.form(f"purchasing_unable_form_{item_id}"):
                 reason = st.text_area("Alasan *")
@@ -446,14 +469,13 @@ def _render_item_card(user, it):
     # 4. Store Leader check — cek unit, boleh set harga jual berbeda dari Purchasing
     elif status == "store_leader_check" and is_leader(user):
         st.info(f"Dari Purchasing — Supplier: {it.get('pur_supplier','-')} | Harga: {_fmt(it.get('pur_price',0))} | Stock: {it.get('pur_stock','-')} | ETA: {it.get('pur_eta','-')}")
-        with st.form(f"sl_price_form_{item_id}"):
-            sell_price = st.number_input("Harga Jual ke Customer (Rp)", min_value=0,
-                                          value=int(it.get("pur_price") or 0), step=10000,
-                                          help="Boleh disamakan atau diubah dari harga Purchasing")
-            note = st.text_area("Catatan (opsional)")
-            if st.form_submit_button("✅ Tetapkan Harga & Kirim ke Sales", type="primary"):
-                store_leader_set_price(item_id, user["full_name"], sell_price, note)
-                st.success("Harga ditetapkan — sales bisa langsung menawarkan"); st.rerun()
+        sell_price = rupiah_input("Harga Jual ke Customer (Rp)", key=f"slp_{item_id}",
+                                   default=it.get("pur_price") or 0,
+                                   help="Boleh disamakan atau diubah dari harga Purchasing")
+        note = st.text_area("Catatan (opsional)", key=f"slnote_{item_id}")
+        if st.button("✅ Tetapkan Harga & Kirim ke Sales", type="primary", key=f"slp_submit_{item_id}"):
+            store_leader_set_price(item_id, user["full_name"], sell_price, note)
+            st.success("Harga ditetapkan — sales bisa langsung menawarkan"); st.rerun()
 
     # 5. Sales offer: Deal / No Deal
     elif status == "sales_offer" and (is_sales(user) or user["role"] in ("store_leader","super_admin")):
@@ -461,14 +483,14 @@ def _render_item_card(user, it):
         st.info(f"Harga jual: {_fmt(price_ref)}  |  Supplier: {it.get('pur_supplier','-')}  |  ETA: {it.get('pur_eta','-')}")
         tab1, tab2 = st.tabs(["✅ Deal","❌ No Deal"])
         with tab1:
-            with st.form(f"deal_form_{item_id}"):
-                c1, c2, c3 = st.columns(3)
-                with c1: dqty = st.number_input("Qty Deal", min_value=1, value=int(it.get("qty") or 1))
-                with c2: dprice = st.number_input("Harga Deal (Rp)", min_value=0, value=int(price_ref), step=10000)
-                with c3: dclose = st.date_input("Estimasi Closing", value=date.today())
-                if st.form_submit_button("🏆 Simpan — Won", type="primary"):
-                    sales_deal(item_id, user["full_name"], dqty, dprice, dclose)
-                    st.success("Deal! 🎉"); st.rerun()
+            c1, c2, c3 = st.columns(3)
+            with c1: dqty = st.number_input("Qty Deal", min_value=1, value=int(it.get("qty") or 1), key=f"dqty_{item_id}")
+            with c2:
+                dprice = rupiah_input("Harga Deal (Rp)", key=f"dprice_{item_id}", default=price_ref)
+            with c3: dclose = st.date_input("Estimasi Closing", value=date.today(), key=f"dclose_{item_id}")
+            if st.button("🏆 Simpan — Won", type="primary", key=f"deal_submit_{item_id}"):
+                sales_deal(item_id, user["full_name"], dqty, dprice, dclose)
+                st.success("Deal! 🎉"); st.rerun()
         with tab2:
             reasons = [x["reason"] for x in get_master("nodeal_reason")] or NODEAL_REASONS_FALLBACK
             with st.form(f"nodeal_form_{item_id}"):

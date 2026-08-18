@@ -31,6 +31,26 @@ def _fmt(n):
     try: return f"Rp {int(n):,}".replace(",", ".")
     except: return "Rp 0"
 
+def _rp_digits(s):
+    d = "".join(ch for ch in str(s or "") if ch.isdigit())
+    return int(d) if d else 0
+
+def _rp_str(v):
+    try:
+        n = int(float(v))
+        return f"{n:,}".replace(",", ".") if n else ""
+    except: return ""
+
+def rupiah_input(label, key, default=0, help=None):
+    """Text input auto-format 'Rp x.xxx.xxx' (titik ribuan) begitu fokus pindah/Enter.
+    Mengembalikan integer murni. TIDAK dipakai di dalam st.form."""
+    if key not in st.session_state:
+        st.session_state[key] = _rp_str(default)
+    def _reformat():
+        st.session_state[key] = _rp_str(_rp_digits(st.session_state[key]))
+    st.text_input(label, key=key, on_change=_reformat, help=help, placeholder="0")
+    return _rp_digits(st.session_state[key])
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
@@ -248,27 +268,28 @@ def render_detail(user):
         if already_filled:
             st.info("Beberapa komponen sudah pernah diisi sebelumnya (kemungkinan request ini dikembalikan) — data lama sudah dimuat ulang di bawah, tinggal lengkapi/perbaiki yang masih kosong lalu simpan lagi.")
         cat_results = {}
-        with st.form("purchasing_form"):
-            for cat, label in CATEGORIES:
-                spec = r.get(f"{cat}_spec")
-                if not spec:
-                    continue
-                st.markdown(f"**{label}** — diminta: _{spec}_")
-                c1,c2 = st.columns(2)
-                with c1: found = st.text_input("Produk/Spek Final", value=r.get(f"{cat}_found") or "", key=f"pf_found_{cat}")
-                with c2: price = st.number_input("Harga (Rp)", min_value=0, value=int(r.get(f"{cat}_price") or 0), step=10000, key=f"pf_price_{cat}")
-                cat_results[cat] = {"found": found, "price": price}
-            extras_results = {}
-            for ex in extras:
-                st.markdown(f"**{ex.get('label','')}** (x{ex.get('qty',1)}) — diminta: _{ex.get('spec') or '-'}_")
-                c1,c2 = st.columns(2)
-                with c1: efound = st.text_input("Produk/Spek Final", value=ex.get("found") or "", key=f"pf_efound_{ex['id']}")
-                with c2: eprice = st.number_input("Harga (Rp)", min_value=0, value=int(ex.get("price") or 0), step=10000, key=f"pf_eprice_{ex['id']}")
-                extras_results[ex["id"]] = {"found": efound, "price": eprice}
-            note = st.text_area("Catatan Purchasing (opsional)")
-            if st.form_submit_button("✅ Simpan — Kirim ke Store Leader", type="primary"):
-                purchasing_save(rid, user["full_name"], cat_results, extras_results, note)
-                st.success("Komponen tersimpan — menunggu cek Store Leader"); st.rerun()
+        for cat, label in CATEGORIES:
+            spec = r.get(f"{cat}_spec")
+            if not spec:
+                continue
+            st.markdown(f"**{label}** — diminta: _{spec}_")
+            c1,c2 = st.columns(2)
+            with c1: found = st.text_input("Produk/Spek Final", value=r.get(f"{cat}_found") or "", key=f"pf_found_{cat}")
+            with c2:
+                price = rupiah_input("Harga (Rp)", key=f"pf_price_{cat}", default=r.get(f"{cat}_price") or 0)
+            cat_results[cat] = {"found": found, "price": price}
+        extras_results = {}
+        for ex in extras:
+            st.markdown(f"**{ex.get('label','')}** (x{ex.get('qty',1)}) — diminta: _{ex.get('spec') or '-'}_")
+            c1,c2 = st.columns(2)
+            with c1: efound = st.text_input("Produk/Spek Final", value=ex.get("found") or "", key=f"pf_efound_{ex['id']}")
+            with c2:
+                eprice = rupiah_input("Harga (Rp)", key=f"pf_eprice_{ex['id']}", default=ex.get("price") or 0)
+            extras_results[ex["id"]] = {"found": efound, "price": eprice}
+        note = st.text_area("Catatan Purchasing (opsional)", key="pf_note")
+        if st.button("✅ Simpan — Kirim ke Store Leader", type="primary", key="pf_submit"):
+            purchasing_save(rid, user["full_name"], cat_results, extras_results, note)
+            st.success("Komponen tersimpan — menunggu cek Store Leader"); st.rerun()
 
     # ── Store Leader: cek & tetapkan harga ──────────────────────────────────
     elif status == "store_leader_check" and is_leader(user):
@@ -289,12 +310,11 @@ def render_detail(user):
 
         c1,c2 = st.columns(2)
         with c1:
-            with st.form("sl_price_form"):
-                sell_price = st.number_input("Harga Jual ke Customer (Rp)", min_value=0, value=int(total_hpp), step=10000)
-                slnote = st.text_area("Catatan (opsional)")
-                if st.form_submit_button("✅ Tetapkan Harga & Kirim ke Sales", type="primary"):
-                    store_leader_set_price(rid, user["full_name"], sell_price, slnote)
-                    st.success("Harga ditetapkan — sales bisa langsung menawarkan"); st.rerun()
+            sell_price = rupiah_input("Harga Jual ke Customer (Rp)", key="sl_price_input", default=total_hpp)
+            slnote = st.text_area("Catatan (opsional)", key="sl_note_input")
+            if st.button("✅ Tetapkan Harga & Kirim ke Sales", type="primary", key="sl_price_submit"):
+                store_leader_set_price(rid, user["full_name"], sell_price, slnote)
+                st.success("Harga ditetapkan — sales bisa langsung menawarkan"); st.rerun()
         with c2:
             with st.popover("❌ Reject", use_container_width=True):
                 reason = st.text_area("Alasan Reject *", key="pcr_reject_reason")
@@ -313,12 +333,11 @@ def render_detail(user):
         st.info(f"Harga jual: {_fmt(r.get('sl_price',0))}" + (f"  |  Catatan: {r['sl_note']}" if r.get("sl_note") else ""))
         tab1,tab2 = st.tabs(["✅ Deal","❌ No Deal"])
         with tab1:
-            with st.form("deal_form"):
-                dprice = st.number_input("Harga Deal (Rp)", min_value=0, value=int(r.get("sl_price") or 0), step=10000)
-                dclose = st.date_input("Estimasi Closing", value=date.today())
-                if st.form_submit_button("🏆 Simpan — Won", type="primary"):
-                    sales_deal(rid, user["full_name"], dprice, dclose)
-                    st.success("Deal! 🎉"); st.rerun()
+            dprice = rupiah_input("Harga Deal (Rp)", key="pcr_dprice_input", default=r.get("sl_price") or 0)
+            dclose = st.date_input("Estimasi Closing", value=date.today(), key="pcr_dclose_input")
+            if st.button("🏆 Simpan — Won", type="primary", key="pcr_deal_submit"):
+                sales_deal(rid, user["full_name"], dprice, dclose)
+                st.success("Deal! 🎉"); st.rerun()
         with tab2:
             with st.form("nodeal_form"):
                 reason = st.selectbox("Alasan No Deal", NODEAL_REASONS)
