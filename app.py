@@ -849,6 +849,14 @@ def page_pcbuilder():
     # MODE 1: AUTO GENERATE
     # ══════════════════════════════════════════════════════════════════════════
     if "Auto" in mode:
+        st.markdown("**Tambahan di luar budget PC (opsional)**")
+        c_extra1, c_extra2 = st.columns(2)
+        with c_extra1:
+            want_monitor = st.radio("🖥️ Monitor", ["Tidak","Ya"], horizontal=True, key="ag_want_monitor") == "Ya"
+        with c_extra2:
+            want_peripheral = st.radio("⌨️🖱️ Keyboard & Mouse", ["Tidak","Ya"], horizontal=True, key="ag_want_peripheral") == "Ya"
+        st.caption("Kalau dipilih \"Ya\", harga monitor/peripheral ditambahkan terpisah di luar budget PC di atas — tidak mengurangi budget komponen inti.")
+        st.divider()
         col1,col2,col3 = st.columns(3)
         with col1:
             bt = st.selectbox("Tipe Build", BUILD_TYPES, key="ag_bt")
@@ -884,7 +892,12 @@ def page_pcbuilder():
                 st.session_state["ag_result"] = result
                 st.session_state["ag_alts"] = build_alternatives(filtered_comps, bt, budget)
                 st.session_state["ag_saved_flag"] = False
-                st.session_state["ag_extras"] = []
+                _pre_extras = []
+                if want_monitor:
+                    _pre_extras.append({"nama_barang":"","kategori_label":"Monitor","qty":1,"selling_price":0})
+                if want_peripheral:
+                    _pre_extras.append({"nama_barang":"","kategori_label":"Keyboard & Mouse","qty":1,"selling_price":0})
+                st.session_state["ag_extras"] = _pre_extras
 
         result = st.session_state.get("ag_result")
         if result:
@@ -900,7 +913,7 @@ def page_pcbuilder():
                     total+=float(c.get("selling_price",0))
 
                 st.divider()
-                with st.expander("🖥️➕ Tambah Monitor & Peripheral (Opsional)"):
+                with st.expander("🖥️➕ Tambah Monitor & Peripheral (Opsional)", expanded=bool(st.session_state.get("ag_extras"))):
                     if "ag_extras" not in st.session_state:
                         st.session_state["ag_extras"] = []
                     try:
@@ -911,7 +924,9 @@ def page_pcbuilder():
                     _stock_opts_ag = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
                                       [cc.get("nama_barang","")+" — "+_fmt_h(cc.get("h1",0)) for cc in _all_comps_ag]
                     for ei, ex in enumerate(st.session_state["ag_extras"]):
-                        pick_idx = st.selectbox(f"Item Peripheral #{ei+1}", range(len(_stock_opts_ag)),
+                        _hint = ex.get("kategori_label") if not ex.get("nama_barang") and ex.get("kategori_label") not in (None,"Peripheral") else None
+                        _row_label = f"{_hint} — pilih dari stok atau ketik manual" if _hint else f"Item Peripheral #{ei+1}"
+                        pick_idx = st.selectbox(_row_label, range(len(_stock_opts_ag)),
                                                  format_func=lambda k: _stock_opts_ag[k],
                                                  index=0, key=f"ag_ex_pick_{ei}")
                         prev_k = f"ag_ex_prev_{ei}"
