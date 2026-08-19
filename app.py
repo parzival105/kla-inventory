@@ -884,6 +884,7 @@ def page_pcbuilder():
                 st.session_state["ag_result"] = result
                 st.session_state["ag_alts"] = build_alternatives(filtered_comps, bt, budget)
                 st.session_state["ag_saved_flag"] = False
+                st.session_state["ag_extras"] = []
 
         result = st.session_state.get("ag_result")
         if result:
@@ -897,6 +898,53 @@ def page_pcbuilder():
                     st.markdown("**"+c.get("kategori_label","")+":–**")
                     _comp_card(c)
                     total+=float(c.get("selling_price",0))
+
+                st.divider()
+                with st.expander("🖥️➕ Tambah Monitor & Peripheral (Opsional)"):
+                    if "ag_extras" not in st.session_state:
+                        st.session_state["ag_extras"] = []
+                    try:
+                        from modules.storage import load_components as _load_comps_ag
+                        _all_comps_ag = _load_comps_ag() or []
+                    except Exception:
+                        _all_comps_ag = []
+                    _stock_opts_ag = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
+                                      [cc.get("nama_barang","")+" — "+_fmt_h(cc.get("h1",0)) for cc in _all_comps_ag]
+                    for ei, ex in enumerate(st.session_state["ag_extras"]):
+                        pick_idx = st.selectbox(f"Item Peripheral #{ei+1}", range(len(_stock_opts_ag)),
+                                                 format_func=lambda k: _stock_opts_ag[k],
+                                                 index=0, key=f"ag_ex_pick_{ei}")
+                        prev_k = f"ag_ex_prev_{ei}"
+                        if pick_idx > 0:
+                            chosen = _all_comps_ag[pick_idx-1]
+                            ex["nama_barang"] = chosen.get("nama_barang","")
+                            ex["kategori_label"] = chosen.get("kategori_label") or PC_CATEGORIES.get(chosen.get("kategori",""), "Peripheral")
+                            if st.session_state.get(prev_k) != pick_idx:
+                                ex["selling_price"] = float(chosen.get("h1",0) or 0)
+                                st.session_state[f"ag_ex_price_{ei}"] = _rp_str(ex["selling_price"])
+                                st.session_state[prev_k] = pick_idx
+                        else:
+                            st.session_state[prev_k] = 0
+                            ex["nama_barang"] = st.text_input("Nama item (manual)", value=ex.get("nama_barang",""), key=f"ag_ex_name_{ei}")
+                            ex["kategori_label"] = "Peripheral"
+                        c1,c2,c3 = st.columns([1,1.3,0.6])
+                        with c1:
+                            ex["qty"] = st.number_input("Qty", min_value=1, value=int(ex.get("qty",1) or 1), step=1, key=f"ag_ex_qty_{ei}")
+                        with c2:
+                            ex["selling_price"] = rupiah_input("Harga (Rp)", key=f"ag_ex_price_{ei}", default=ex.get("selling_price",0))
+                        with c3:
+                            st.write("")
+                            if st.button("🗑️", key=f"ag_ex_del_{ei}"):
+                                st.session_state["ag_extras"].pop(ei); st.rerun()
+                        st.divider()
+                    if st.button("➕ Tambah Monitor/Peripheral", key="ag_ex_add"):
+                        st.session_state["ag_extras"].append({"nama_barang":"","kategori_label":"Peripheral","qty":1,"selling_price":0})
+                        st.rerun()
+
+                extras_total = sum(float(e.get("selling_price",0) or 0) * int(e.get("qty",1) or 1) for e in st.session_state.get("ag_extras", []))
+                valid_extras = [e for e in st.session_state.get("ag_extras", []) if (e.get("nama_barang") or "").strip()]
+                all_components_ag = result["components"] + valid_extras
+                total += extras_total
                 st.markdown("### TOTAL: "+_fmt(total))
                 for n in result.get("compat_notes",[]): st.success(n)
                 for w in result.get("compat_warnings",[]): st.warning(w)
@@ -911,31 +959,31 @@ def page_pcbuilder():
                         try:
                             import json as _j
                             from modules.db import save_build_history
-                            save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j.dumps(result["components"],ensure_ascii=False,default=str))
+                            save_build_history(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],total,_j.dumps(all_components_ag,ensure_ascii=False,default=str))
                             st.session_state["ag_saved_flag"]=True
                             st.success("Build tersimpan! Lihat di Riwayat Build.")
                         except Exception as e: st.error("Gagal: "+str(e))
                 with c_sv2:
-                    pdf=_build_pdf(bn,result["build_type"],result["total_price"],result["components"],result.get("compat_notes",[]),result.get("compat_warnings",[]),user)
+                    pdf=_build_pdf(bn,result["build_type"],total,all_components_ag,result.get("compat_notes",[]),result.get("compat_warnings",[]),user)
                     if pdf:
                         def _autosave_ag_download():
                             if not st.session_state.get("ag_saved_flag"):
                                 try:
                                     import json as _j2
                                     from modules.db import save_build_history as _sbh
-                                    _sbh(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j2.dumps(result["components"],ensure_ascii=False,default=str))
+                                    _sbh(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],total,_j2.dumps(all_components_ag,ensure_ascii=False,default=str))
                                     st.session_state["ag_saved_flag"]=True
                                 except Exception: pass
                         st.download_button("📥 Download PDF (auto-simpan)",data=pdf,file_name=bn.replace(" ","_")+".pdf",mime="application/pdf",key="pdf_ag",on_click=_autosave_ag_download)
                 with c_sv3:
-                    xls_ag=_build_excel(bn,result["components"])
+                    xls_ag=_build_excel(bn,all_components_ag)
                     if xls_ag:
                         def _autosave_ag_excel():
                             if not st.session_state.get("ag_saved_flag"):
                                 try:
                                     import json as _j3
                                     from modules.db import save_build_history as _sbh2
-                                    _sbh2(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],result["total_price"],_j3.dumps(result["components"],ensure_ascii=False,default=str))
+                                    _sbh2(user["id"],user.get("branch",""),bn,result["build_type"],result["budget"],total,_j3.dumps(all_components_ag,ensure_ascii=False,default=str))
                                     st.session_state["ag_saved_flag"]=True
                                 except Exception: pass
                         st.download_button("📊 Download Excel (auto-simpan)",data=xls_ag,file_name=bn.replace(" ","_")+".xlsx",
@@ -946,7 +994,7 @@ def page_pcbuilder():
                     from modules.config import ANTHROPIC_KEY
                     if ANTHROPIC_KEY:
                         import anthropic, json
-                        safe=[{"tipe":c.get("kategori_label",""),"nama":c.get("nama_barang",""),"harga":_fmt(c.get("selling_price",0))} for c in result["components"]]
+                        safe=[{"tipe":c.get("kategori_label",""),"nama":c.get("nama_barang",""),"harga":_fmt(c.get("selling_price",0))} for c in all_components_ag]
                         prompt="Kamu konsultan PC di KLA Computer. Jelaskan build ini untuk customer dalam 3 paragraf Bahasa Indonesia.\nBUILD: "+result["build_type"]+" | Total: "+_fmt(result["total_price"])+"\nKOMPONEN: "+json.dumps(safe,ensure_ascii=False)+"\nFokus pada manfaat, jangan sebut HPP/margin."
                         client=anthropic.Anthropic(api_key=ANTHROPIC_KEY)
                         with st.spinner("Generating AI explanation..."):
