@@ -15,6 +15,35 @@ if "user" not in st.session_state: st.session_state.user = None
 if "analysis" not in st.session_state: st.session_state.analysis = None
 if "components" not in st.session_state: st.session_state.components = []
 if "page" not in st.session_state: st.session_state.page = "dashboard"
+if "theme_mode" not in st.session_state: st.session_state.theme_mode = "dark"
+
+def inject_theme_css():
+    """Override tampilan utama Streamlit sesuai mode (Terang/Gelap).
+    Catatan: kartu-kartu custom (dashboard, badge, kanban) masih pakai warna
+    gelap yang di-hardcode di beberapa halaman — belum ikut berubah di mode terang."""
+    if st.session_state.theme_mode == "light":
+        st.markdown("""<style>
+:root { --bg:#f7f5fb; --card:#ffffff; --border:#e4defa; --text:#2b1a3d; --muted:#7a6a94; --accent:#7c3aed; }
+[data-testid="stAppViewContainer"] { background:var(--bg) !important; }
+[data-testid="stHeader"] { background:transparent !important; }
+[data-testid="stSidebar"] { background:linear-gradient(180deg,#431061,#5b2183) !important; }
+[data-testid="stSidebar"] * { color:#f3ebff !important; }
+[data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li,
+h1, h2, h3, h4, h5, label, .stMarkdown, .stCaption, .stText { color:var(--text) !important; }
+[data-testid="stAppViewContainer"] .stButton>button, [data-testid="stAppViewContainer"] .stDownloadButton>button {
+    background:#ffffff !important; color:var(--accent) !important; border:1px solid var(--border) !important;
+}
+[data-testid="stAppViewContainer"] .stButton>button[kind="primary"] {
+    background:var(--accent) !important; color:#ffffff !important; border:none !important;
+}
+[data-testid="stAppViewContainer"] input, [data-testid="stAppViewContainer"] textarea,
+[data-testid="stAppViewContainer"] select, .stSelectbox div[data-baseweb="select"] > div {
+    background:#ffffff !important; color:var(--text) !important; border-color:var(--border) !important;
+}
+[data-testid="stExpander"] { background:var(--card) !important; border:1px solid var(--border) !important; border-radius:10px; }
+[data-testid="stDataFrame"] { background:var(--card) !important; }
+hr { border-color:var(--border) !important; }
+</style>""", unsafe_allow_html=True)
 
 def get_user(): return st.session_state.user
 def get_an(): return st.session_state.analysis
@@ -354,6 +383,10 @@ def render_sidebar():
         except: pass
         an=get_an()
         if an: st.caption("📂 " + an.get("filename",""))
+        is_light = st.session_state.theme_mode == "light"
+        if st.button("☀️ Mode Terang" if not is_light else "🌙 Mode Gelap", use_container_width=True, key="theme_toggle_btn"):
+            st.session_state.theme_mode = "light" if not is_light else "dark"
+            st.rerun()
         if st.button("🚪 Logout",use_container_width=True):
             clear_session_cookie()
             try:
@@ -892,11 +925,28 @@ def page_pcbuilder():
                 st.session_state["ag_result"] = result
                 st.session_state["ag_alts"] = build_alternatives(filtered_comps, bt, budget)
                 st.session_state["ag_saved_flag"] = False
+
+                def _auto_pick_peripheral(keywords, label):
+                    try:
+                        from modules.storage import load_components as _lc
+                        pool = _lc() or []
+                    except Exception:
+                        pool = []
+                    matches = [c for c in pool if any(kw in (c.get("nama_barang","") or "").lower() for kw in keywords)]
+                    if not matches:
+                        return {"nama_barang":"", "kategori_label":label, "qty":1, "selling_price":0}
+                    best = min(matches, key=lambda c: float(c.get("h1", float("inf")) or float("inf")))
+                    picked = dict(best)
+                    picked["kategori_label"] = label
+                    picked["qty"] = 1
+                    picked["selling_price"] = float(best.get("h1",0) or 0)
+                    return picked
+
                 _pre_extras = []
                 if want_monitor:
-                    _pre_extras.append({"nama_barang":"","kategori_label":"Monitor","qty":1,"selling_price":0})
+                    _pre_extras.append(_auto_pick_peripheral(["monitor"], "Monitor"))
                 if want_peripheral:
-                    _pre_extras.append({"nama_barang":"","kategori_label":"Keyboard & Mouse","qty":1,"selling_price":0})
+                    _pre_extras.append(_auto_pick_peripheral(["keyboard","mouse","kombo"], "Keyboard & Mouse"))
                 st.session_state["ag_extras"] = _pre_extras
 
         result = st.session_state.get("ag_result")
@@ -912,54 +962,18 @@ def page_pcbuilder():
                     _comp_card(c)
                     total+=float(c.get("selling_price",0))
 
-                st.divider()
-                with st.expander("🖥️➕ Tambah Monitor & Peripheral (Opsional)", expanded=bool(st.session_state.get("ag_extras"))):
-                    if "ag_extras" not in st.session_state:
-                        st.session_state["ag_extras"] = []
-                    try:
-                        from modules.storage import load_components as _load_comps_ag
-                        _all_comps_ag = _load_comps_ag() or []
-                    except Exception:
-                        _all_comps_ag = []
-                    _stock_opts_ag = ["✏️ Ketik manual (custom / tidak ada di stok)"] + \
-                                      [cc.get("nama_barang","")+" — "+_fmt_h(cc.get("h1",0)) for cc in _all_comps_ag]
-                    for ei, ex in enumerate(st.session_state["ag_extras"]):
-                        _hint = ex.get("kategori_label") if not ex.get("nama_barang") and ex.get("kategori_label") not in (None,"Peripheral") else None
-                        _row_label = f"{_hint} — pilih dari stok atau ketik manual" if _hint else f"Item Peripheral #{ei+1}"
-                        pick_idx = st.selectbox(_row_label, range(len(_stock_opts_ag)),
-                                                 format_func=lambda k: _stock_opts_ag[k],
-                                                 index=0, key=f"ag_ex_pick_{ei}")
-                        prev_k = f"ag_ex_prev_{ei}"
-                        if pick_idx > 0:
-                            chosen = _all_comps_ag[pick_idx-1]
-                            ex["nama_barang"] = chosen.get("nama_barang","")
-                            ex["kategori_label"] = chosen.get("kategori_label") or PC_CATEGORIES.get(chosen.get("kategori",""), "Peripheral")
-                            if st.session_state.get(prev_k) != pick_idx:
-                                ex["selling_price"] = float(chosen.get("h1",0) or 0)
-                                st.session_state[f"ag_ex_price_{ei}"] = _rp_str(ex["selling_price"])
-                                st.session_state[prev_k] = pick_idx
+                auto_extras = st.session_state.get("ag_extras", [])
+                if auto_extras:
+                    st.divider()
+                    for ex in auto_extras:
+                        st.markdown("**"+ex.get("kategori_label","")+":–**")
+                        if ex.get("nama_barang"):
+                            _comp_card(ex)
+                            total += float(ex.get("selling_price",0) or 0) * int(ex.get("qty",1) or 1)
                         else:
-                            st.session_state[prev_k] = 0
-                            ex["nama_barang"] = st.text_input("Nama item (manual)", value=ex.get("nama_barang",""), key=f"ag_ex_name_{ei}")
-                            ex["kategori_label"] = "Peripheral"
-                        c1,c2,c3 = st.columns([1,1.3,0.6])
-                        with c1:
-                            ex["qty"] = st.number_input("Qty", min_value=1, value=int(ex.get("qty",1) or 1), step=1, key=f"ag_ex_qty_{ei}")
-                        with c2:
-                            ex["selling_price"] = rupiah_input("Harga (Rp)", key=f"ag_ex_price_{ei}", default=ex.get("selling_price",0))
-                        with c3:
-                            st.write("")
-                            if st.button("🗑️", key=f"ag_ex_del_{ei}"):
-                                st.session_state["ag_extras"].pop(ei); st.rerun()
-                        st.divider()
-                    if st.button("➕ Tambah Monitor/Peripheral", key="ag_ex_add"):
-                        st.session_state["ag_extras"].append({"nama_barang":"","kategori_label":"Peripheral","qty":1,"selling_price":0})
-                        st.rerun()
+                            st.warning(f"Tidak ditemukan {ex.get('kategori_label','').lower()} yang cocok di stok.")
 
-                extras_total = sum(float(e.get("selling_price",0) or 0) * int(e.get("qty",1) or 1) for e in st.session_state.get("ag_extras", []))
-                valid_extras = [e for e in st.session_state.get("ag_extras", []) if (e.get("nama_barang") or "").strip()]
-                all_components_ag = result["components"] + valid_extras
-                total += extras_total
+                all_components_ag = result["components"] + [e for e in auto_extras if e.get("nama_barang")]
                 st.markdown("### TOTAL: "+_fmt(total))
                 for n in result.get("compat_notes",[]): st.success(n)
                 for w in result.get("compat_warnings",[]): st.warning(w)
@@ -2060,6 +2074,7 @@ def page_pcreq_reports():
 # ROUTER
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
+    inject_theme_css()
     if not get_user():
         if not restore_session():
             page_login(); return
