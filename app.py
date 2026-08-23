@@ -932,7 +932,10 @@ def page_pcbuilder():
                         pool = _lc() or []
                     except Exception:
                         pool = []
-                    matches = [c for c in pool if any(kw in (c.get("nama_barang","") or "").lower() for kw in keywords)]
+                    def _hit(c):
+                        hay = ((c.get("nama_barang","") or "") + " " + (c.get("kategori","") or "")).lower()
+                        return any(kw in hay for kw in keywords)
+                    matches = [c for c in pool if _hit(c)]
                     if not matches:
                         return {"nama_barang":"", "kategori_label":label, "qty":1, "selling_price":0}
                     best = min(matches, key=lambda c: float(c.get("h1", float("inf")) or float("inf")))
@@ -971,7 +974,7 @@ def page_pcbuilder():
                             _comp_card(ex)
                             total += float(ex.get("selling_price",0) or 0) * int(ex.get("qty",1) or 1)
                         else:
-                            st.warning(f"Tidak ditemukan {ex.get('kategori_label','').lower()} yang cocok di stok.")
+                            st.info(f"Belum ada {ex.get('kategori_label','').lower()} yang tersedia di stok saat ini.")
 
                 all_components_ag = result["components"] + [e for e in auto_extras if e.get("nama_barang")]
                 st.markdown("### TOTAL: "+_fmt(total))

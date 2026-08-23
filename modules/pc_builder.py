@@ -184,22 +184,81 @@ def _select(components, cat, target, remaining, brand=None):
     within = [c for c in avail if float(c.get("h1",0))<=target]
     return max(within, key=lambda c: float(c["h1"])) if within else min(avail, key=lambda c: float(c["h1"]))
 
-def _select_compatible_mb(components, cpu_comp, target, remaining):
+def _mb_compatible_pool(components, cpu_name, remaining=None):
+    """Motherboard yang chipset-nya kompatibel dengan CPU tertentu (tidak pernah fallback ke yang tidak cocok)."""
     all_mb = [c for c in components
               if c.get("kategori","").upper()=="MOTHERBOARD"
               and float(c.get("h1",0))>0
-              and float(c.get("h1",0))<=remaining]
-    if not all_mb: return None
-    cpu_name = cpu_comp.get("nama_barang","") if cpu_comp else ""
+              and (remaining is None or float(c.get("h1",0))<=remaining)]
     _, rule = _find_cpu_rule(cpu_name)
-    if rule:
-        valid_chips = [ch.lower() for ch in rule["chipsets"]]
-        compat = [mb for mb in all_mb if any(ch in _n(mb.get("nama_barang","")) for ch in valid_chips)]
+    if not rule:
+        return [], rule
+    valid_chips = [ch.lower() for ch in rule["chipsets"]]
+    compat = [mb for mb in all_mb if any(ch in _n(mb.get("nama_barang","")) for ch in valid_chips)]
+    return compat, rule
+
+def _select_cpu_with_mb(components, target, remaining, brand=None):
+    """Pilih CPU yang DIJAMIN punya motherboard kompatibel tersedia di stok.
+    Kalau CPU pilihan pertama tidak punya MB cocok, coba kandidat CPU lain
+    (diurutkan mendekati budget) sampai ketemu pasangan yang valid."""
+    avail = [c for c in components
+             if c.get("kategori","").upper()=="PROCESSOR"
+             and c.get("is_available",True)
+             and float(c.get("h1",0))>0
+             and float(c.get("h1",0))<=remaining]
+    if not avail: return None
+    if brand:
+        bm = [c for c in avail if brand.lower() in _n(c.get("nama_barang",""))]
+        if bm: avail = bm
+    # urutkan kandidat: yang paling dekat ke target budget (tanpa melebihi) duluan, lalu sisanya dari termurah
+    within = sorted([c for c in avail if float(c.get("h1",0))<=target], key=lambda c: -float(c["h1"]))
+    rest = sorted([c for c in avail if float(c.get("h1",0))>target], key=lambda c: float(c["h1"]))
+    candidates = within + rest
+    fallback = None
+    for cpu in candidates:
+        cpu_name = cpu.get("nama_barang","")
+        compat, rule = _mb_compatible_pool(components, cpu_name)
+        if not rule:
+            # CPU tidak dikenali basis datanya — jangan dipilih supaya tidak berisiko mismatch
+            continue
         if compat:
-            within = [mb for mb in compat if float(mb["h1"])<=target]
-            return max(within, key=lambda c: float(c["h1"])) if within else min(compat, key=lambda c: float(c["h1"]))
-    within = [mb for mb in all_mb if float(mb["h1"])<=target]
-    return max(within, key=lambda c: float(c["h1"])) if within else min(all_mb, key=lambda c: float(c["h1"]))
+            return cpu
+        if fallback is None:
+            fallback = cpu
+    # Tidak ada CPU yang punya motherboard cocok di stok sama sekali — pakai kandidat pertama yang dikenali
+    return fallback or candidates[0]
+
+def _select_compatible_mb(components, cpu_comp, target, remaining):
+    cpu_name = cpu_comp.get("nama_barang","") if cpu_comp else ""
+    compat, rule = _mb_compatible_pool(components, cpu_name, remaining)
+    if compat:
+        within = [mb for mb in compat if float(mb["h1"])<=target]
+        return max(within, key=lambda c: float(c["h1"])) if within else min(compat, key=lambda c: float(c["h1"]))
+    # Sengaja TIDAK fallback ke motherboard yang tidak kompatibel — lebih baik kosong
+    # daripada memasangkan komponen yang salah.
+    return None
+
+def _select_ram(components, cat, target, remaining, cpu_comp):
+    avail = [c for c in components
+             if c.get("kategori","").upper()==cat.upper()
+             and c.get("is_available",True)
+             and float(c.get("h1",0))>0
+             and float(c.get("h1",0))<=remaining]
+    if not avail: return None
+    if cpu_comp:
+        _, rule = _find_cpu_rule(cpu_comp.get("nama_barang",""))
+        if rule:
+            req_ram = rule["ram"]
+            def _ram_ok(nm):
+                rn = _n(nm)
+                if "ddr5" in rn: return "DDR5" in req_ram
+                if "ddr4" in rn: return "DDR4" in req_ram
+                if "ddr3" in rn: return "DDR3" in req_ram
+                return True
+            filtered = [c for c in avail if _ram_ok(c.get("nama_barang",""))]
+            if filtered: avail = filtered
+    within = [c for c in avail if float(c.get("h1",0))<=target]
+    return max(within, key=lambda c: float(c["h1"])) if within else min(avail, key=lambda c: float(c["h1"]))
 
 def build_pc(components, build_type, budget, preferred_brand=None):
     profile = BUILD_PROFILES.get(build_type)
@@ -216,9 +275,12 @@ def build_pc(components, build_type, budget, preferred_brand=None):
         target = budget * alloc[cat]
         if cat == "MOTHERBOARD" and cpu_comp:
             comp = _select_compatible_mb(components, cpu_comp, target, remaining)
+        elif cat == "PROCESSOR":
+            comp = _select_cpu_with_mb(components, target, remaining, preferred_brand)
+        elif cat in ("RAM LONGDIMM","RAM SODIMM"):
+            comp = _select_ram(components, cat, target, remaining, cpu_comp)
         else:
-            comp = _select(components, cat, target, remaining,
-                           preferred_brand if cat=="PROCESSOR" else None)
+            comp = _select(components, cat, target, remaining)
         if comp:
             c = dict(comp)
             c["kategori"]       = cat
@@ -228,6 +290,8 @@ def build_pc(components, build_type, budget, preferred_brand=None):
             selected[cat] = c
             remaining -= c["selling_price"]
             if cat == "PROCESSOR": cpu_comp = c
+        elif cat == "MOTHERBOARD" and cpu_comp:
+            warnings.append("Tidak ada Motherboard yang kompatibel dengan " + cpu_comp.get("nama_barang","CPU") + " tersedia di stok")
         else:
             warnings.append("Tidak ada " + PC_CATEGORIES.get(cat,cat) + " tersedia di budget ini")
 
