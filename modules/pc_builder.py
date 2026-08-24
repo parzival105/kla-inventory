@@ -175,21 +175,22 @@ def _select(components, cat, target, remaining, brand=None):
     avail = [c for c in components
              if c.get("kategori","").upper()==cat.upper()
              and c.get("is_available",True)
-             and float(c.get("h1",0))>0
-             and float(c.get("h1",0))<=remaining]
+             and float(c.get("h1",0))>0]
     if not avail: return None
     if brand:
         bm = [c for c in avail if brand.lower() in _n(c.get("nama_barang",""))]
         if bm: avail = bm
-    within = [c for c in avail if float(c.get("h1",0))<=target]
-    return max(within, key=lambda c: float(c["h1"])) if within else min(avail, key=lambda c: float(c["h1"]))
+    within_remaining = [c for c in avail if float(c.get("h1",0))<=remaining]
+    pool = within_remaining if within_remaining else avail
+    within_target = [c for c in pool if float(c.get("h1",0))<=target]
+    return max(within_target, key=lambda c: float(c["h1"])) if within_target else min(pool, key=lambda c: float(c["h1"]))
 
-def _mb_compatible_pool(components, cpu_name, remaining=None):
-    """Motherboard yang chipset-nya kompatibel dengan CPU tertentu (tidak pernah fallback ke yang tidak cocok)."""
+def _mb_compatible_pool(components, cpu_name):
+    """Semua motherboard yang chipset-nya kompatibel dengan CPU tertentu (tanpa batas budget —
+    ketersediaan kompatibilitas dicek dulu, urusan harga menyusul)."""
     all_mb = [c for c in components
               if c.get("kategori","").upper()=="MOTHERBOARD"
-              and float(c.get("h1",0))>0
-              and (remaining is None or float(c.get("h1",0))<=remaining)]
+              and float(c.get("h1",0))>0]
     _, rule = _find_cpu_rule(cpu_name)
     if not rule:
         return [], rule
@@ -197,53 +198,54 @@ def _mb_compatible_pool(components, cpu_name, remaining=None):
     compat = [mb for mb in all_mb if any(ch in _n(mb.get("nama_barang","")) for ch in valid_chips)]
     return compat, rule
 
+def _pick_budget_first(pool, target, remaining):
+    """Dari pool yang SUDAH pasti kompatibel: utamakan yang muat di sisa budget & mendekati target,
+    tapi kalau tidak ada yang muat, tetap pilih yang termurah dari pool itu (lebih mahal dari budget
+    tapi tetap kompatibel) — daripada mengorbankan kompatibilitas."""
+    if not pool: return None
+    within_remaining = [c for c in pool if float(c["h1"])<=remaining]
+    search_in = within_remaining if within_remaining else pool
+    within_target = [c for c in search_in if float(c["h1"])<=target]
+    return max(within_target, key=lambda c: float(c["h1"])) if within_target else min(search_in, key=lambda c: float(c["h1"]))
+
 def _select_cpu_with_mb(components, target, remaining, brand=None):
-    """Pilih CPU yang DIJAMIN punya motherboard kompatibel tersedia di stok.
-    Kalau CPU pilihan pertama tidak punya MB cocok, coba kandidat CPU lain
-    (diurutkan mendekati budget) sampai ketemu pasangan yang valid."""
+    """Pilih CPU yang DIJAMIN punya motherboard kompatibel tersedia di stok (cek ketersediaan
+    kompatibilitas dulu, baru budget)."""
     avail = [c for c in components
              if c.get("kategori","").upper()=="PROCESSOR"
              and c.get("is_available",True)
-             and float(c.get("h1",0))>0
-             and float(c.get("h1",0))<=remaining]
+             and float(c.get("h1",0))>0]
     if not avail: return None
     if brand:
         bm = [c for c in avail if brand.lower() in _n(c.get("nama_barang",""))]
         if bm: avail = bm
-    # urutkan kandidat: yang paling dekat ke target budget (tanpa melebihi) duluan, lalu sisanya dari termurah
-    within = sorted([c for c in avail if float(c.get("h1",0))<=target], key=lambda c: -float(c["h1"]))
-    rest = sorted([c for c in avail if float(c.get("h1",0))>target], key=lambda c: float(c["h1"]))
+    within = sorted([c for c in avail if float(c.get("h1",0))<=remaining], key=lambda c: -float(c["h1"]))
+    rest = sorted([c for c in avail if float(c.get("h1",0))>remaining], key=lambda c: float(c["h1"]))
     candidates = within + rest
     fallback = None
     for cpu in candidates:
         cpu_name = cpu.get("nama_barang","")
         compat, rule = _mb_compatible_pool(components, cpu_name)
         if not rule:
-            # CPU tidak dikenali basis datanya — jangan dipilih supaya tidak berisiko mismatch
             continue
         if compat:
             return cpu
         if fallback is None:
             fallback = cpu
-    # Tidak ada CPU yang punya motherboard cocok di stok sama sekali — pakai kandidat pertama yang dikenali
     return fallback or candidates[0]
 
 def _select_compatible_mb(components, cpu_comp, target, remaining):
     cpu_name = cpu_comp.get("nama_barang","") if cpu_comp else ""
-    compat, rule = _mb_compatible_pool(components, cpu_name, remaining)
-    if compat:
-        within = [mb for mb in compat if float(mb["h1"])<=target]
-        return max(within, key=lambda c: float(c["h1"])) if within else min(compat, key=lambda c: float(c["h1"]))
-    # Sengaja TIDAK fallback ke motherboard yang tidak kompatibel — lebih baik kosong
-    # daripada memasangkan komponen yang salah.
-    return None
+    compat, rule = _mb_compatible_pool(components, cpu_name)
+    if not compat:
+        return None
+    return _pick_budget_first(compat, target, remaining)
 
 def _select_ram(components, cat, target, remaining, cpu_comp):
     avail = [c for c in components
              if c.get("kategori","").upper()==cat.upper()
              and c.get("is_available",True)
-             and float(c.get("h1",0))>0
-             and float(c.get("h1",0))<=remaining]
+             and float(c.get("h1",0))>0]
     if not avail: return None
     if cpu_comp:
         _, rule = _find_cpu_rule(cpu_comp.get("nama_barang",""))
@@ -256,9 +258,11 @@ def _select_ram(components, cat, target, remaining, cpu_comp):
                 if "ddr3" in rn: return "DDR3" in req_ram
                 return True
             filtered = [c for c in avail if _ram_ok(c.get("nama_barang",""))]
-            if filtered: avail = filtered
-    within = [c for c in avail if float(c.get("h1",0))<=target]
-    return max(within, key=lambda c: float(c["h1"])) if within else min(avail, key=lambda c: float(c["h1"]))
+            # Kalau tidak ada RAM dengan tipe yang benar sama sekali di stok, jangan
+            # pasangkan tipe yang salah — biarkan kosong (akan tercatat sebagai warning jujur).
+            avail = filtered if filtered else []
+    if not avail: return None
+    return _pick_budget_first(avail, target, remaining)
 
 def build_pc(components, build_type, budget, preferred_brand=None):
     profile = BUILD_PROFILES.get(build_type)
