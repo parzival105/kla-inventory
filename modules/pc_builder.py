@@ -4,6 +4,9 @@ from modules.config import PC_CATEGORIES, BRANCH_FULL, fmt_rupiah
 # Panduan Kompatibilitas dari Kompatible_komponen.xlsx
 
 INTEL_RULES = [
+    {"kw":["pentium g6","pentium g8","celeron g4","celeron g5","celeron g16",
+           "i3 2","i5 2","i7 2","i3 3","i5 3","i7 3"],
+     "socket":"LGA1155","chipsets":["H61","B75","H77","Z77","Z75","B65"],"ram":"DDR3"},
     {"kw":["g1820","g1840","g3220","g3240","g3258","i3 4","i5 4","i7 4"],
      "socket":"LGA1150","chipsets":["H81","B85","H97","Z97"],"ram":"DDR3"},
     {"kw":["i5 5","i7 5","5675","5775"],
@@ -33,6 +36,8 @@ INTEL_RULES = [
 AMD_RULES = [
     {"kw":["athlon x2","athlon ii","phenom"],
      "socket":"AM3","chipsets":["760G","880G","970"],"ram":"DDR3"},
+    {"kw":["a4 4","a6 5","a6 6","a8 5","a8 6","a10 5","a10 6","a10 7","athlon x4"],
+     "socket":"FM2+","chipsets":["A55","A75","A78","A85X","A88X"],"ram":"DDR3"},
     {"kw":["fx-4","fx-6","fx-8","fx-9","fx 4","fx 6","fx 8","fx 9"],
      "socket":"AM3+","chipsets":["970","990X","990FX"],"ram":"DDR3"},
     {"kw":["200ge","220ge","240ge","3000g"],
@@ -54,6 +59,7 @@ AMD_RULES = [
 ]
 
 MB_CHIPSET_SOCKET = {
+    "h61":"LGA1155","b75":"LGA1155","h77":"LGA1155","z77":"LGA1155","z75":"LGA1155","b65":"LGA1155",
     "h81":"LGA1150","b85":"LGA1150","h97":"LGA1150","z97":"LGA1150",
     "h110":"LGA1151","b150":"LGA1151","h170":"LGA1151","z170":"LGA1151",
     "b250":"LGA1151","h270":"LGA1151","z270":"LGA1151",
@@ -65,6 +71,7 @@ MB_CHIPSET_SOCKET = {
     "b760":"LGA1700","z790":"LGA1700",
     "b860":"LGA1851","z890":"LGA1851",
     "760g":"AM3","880g":"AM3","970":"AM3+","990x":"AM3+","990fx":"AM3+",
+    "a55":"FM2+","a75":"FM2+","a78":"FM2+","a85x":"FM2+","a88x":"FM2+",
     "a320":"AM4","b350":"AM4","x370":"AM4","b450":"AM4","x470":"AM4",
     "b550":"AM4","x570":"AM4",
     "a620":"AM5","b650":"AM5","x670":"AM5","b850":"AM5","x870":"AM5",
