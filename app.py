@@ -949,7 +949,14 @@ def page_pcbuilder():
                 if want_monitor:
                     _pre_extras.append(_auto_pick_peripheral(["monitor"], "Monitor"))
                 if want_peripheral:
-                    _pre_extras.append(_auto_pick_peripheral(["keyboard","mouse","kombo"], "Keyboard & Mouse"))
+                    combo = _auto_pick_peripheral(["mouse & keyboard","keyboard & mouse","mouse and keyboard","kombo"], "Keyboard & Mouse (Kombo)")
+                    if combo.get("nama_barang"):
+                        _pre_extras.append(combo)
+                    else:
+                        mouse_item = _auto_pick_peripheral(["mouse office","mouse gaming","mouse"], "Mouse")
+                        kb_item = _auto_pick_peripheral(["keyboard office","keyboard gaming","keyboard"], "Keyboard")
+                        _pre_extras.append(mouse_item)
+                        _pre_extras.append(kb_item)
                 st.session_state["ag_extras"] = _pre_extras
 
         result = st.session_state.get("ag_result")

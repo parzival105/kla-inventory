@@ -70,6 +70,9 @@ PC_CATEGORIES = {
     "RAM LONGDIMM":"RAM (Desktop)","SSD INTERNAL":"SSD","HDD INTERNAL":"HDD",
     "GRAPHIC CARD":"Graphic Card","CASING PC":"Casing","POWER SUPPLY":"Power Supply","INTERNAL COOLER":"CPU Cooler",
     "MONITOR OFFICE":"Monitor Office","MONITOR GAMING":"Monitor Gaming",
+    "MOUSE OFFICE":"Mouse Office","MOUSE GAMING":"Mouse Gaming",
+    "KEYBOARD OFFICE":"Keyboard Office","KEYBOARD GAMING":"Keyboard Gaming",
+    "MOUSE & KEYBOARD OFFICE":"Keyboard & Mouse Combo",
 }
 BUILD_TYPES = ["Office / Kerja","Gaming Entry","Gaming Mid-range","Gaming High-end","Desain Grafis","Video Editing","Coding / Development","Workstation"]
 
