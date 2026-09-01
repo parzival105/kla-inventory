@@ -217,7 +217,8 @@ def _pick_budget_first(pool, target, remaining):
 
 def _select_cpu_with_mb(components, target, remaining, brand=None):
     """Pilih CPU yang DIJAMIN punya motherboard kompatibel tersedia di stok (cek ketersediaan
-    kompatibilitas dulu, baru budget)."""
+    kompatibilitas dulu, baru budget). Prioritas harga memakai jatah alokasi kategori (target),
+    BUKAN seluruh sisa budget — supaya CPU tidak 'menyedot' porsi komponen lain."""
     avail = [c for c in components
              if c.get("kategori","").upper()=="PROCESSOR"
              and c.get("is_available",True)
@@ -226,11 +227,13 @@ def _select_cpu_with_mb(components, target, remaining, brand=None):
     if brand:
         bm = [c for c in avail if brand.lower() in _n(c.get("nama_barang",""))]
         if bm: avail = bm
-    within = sorted([c for c in avail if float(c.get("h1",0))<=remaining], key=lambda c: -float(c["h1"]))
-    rest = sorted([c for c in avail if float(c.get("h1",0))>remaining], key=lambda c: float(c["h1"]))
-    candidates = within + rest
+    within_target = sorted([c for c in avail if float(c.get("h1",0))<=target], key=lambda c: -float(c["h1"]))
+    rest = sorted([c for c in avail if float(c.get("h1",0))>target], key=lambda c: float(c["h1"]))
+    candidates = within_target + rest
     fallback = None
     for cpu in candidates:
+        if float(cpu.get("h1",0)) > remaining and fallback is not None:
+            continue  # sudah ada fallback yang muat di sisa budget, jangan lompat ke yang lebih mahal dulu
         cpu_name = cpu.get("nama_barang","")
         compat, rule = _mb_compatible_pool(components, cpu_name)
         if not rule:
