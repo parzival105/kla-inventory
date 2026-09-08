@@ -178,7 +178,7 @@ BUILD_PRIORITY = {
     "Workstation":          ["PROCESSOR","RAM LONGDIMM","MOTHERBOARD","GRAPHIC CARD","SSD INTERNAL","POWER SUPPLY","CASING PC","INTERNAL COOLER"],
 }
 
-def _select(components, cat, target, remaining, brand=None):
+def _select(components, cat, target, remaining, brand=None, user_branch=None):
     avail = [c for c in components
              if c.get("kategori","").upper()==cat.upper()
              and c.get("is_available",True)
@@ -187,6 +187,7 @@ def _select(components, cat, target, remaining, brand=None):
     if brand:
         bm = [c for c in avail if brand.lower() in _n(c.get("nama_barang",""))]
         if bm: avail = bm
+    avail = _prefer_branch(avail, user_branch)
     within_remaining = [c for c in avail if float(c.get("h1",0))<=remaining]
     pool = within_remaining if within_remaining else avail
     within_target = [c for c in pool if float(c.get("h1",0))<=target]
@@ -205,17 +206,19 @@ def _mb_compatible_pool(components, cpu_name):
     compat = [mb for mb in all_mb if any(ch in _n(mb.get("nama_barang","")) for ch in valid_chips)]
     return compat, rule
 
-def _pick_budget_first(pool, target, remaining):
-    """Dari pool yang SUDAH pasti kompatibel: utamakan yang muat di sisa budget & mendekati target,
-    tapi kalau tidak ada yang muat, tetap pilih yang termurah dari pool itu (lebih mahal dari budget
-    tapi tetap kompatibel) — daripada mengorbankan kompatibilitas."""
+def _pick_budget_first(pool, target, remaining, user_branch=None):
+    """Dari pool yang SUDAH pasti kompatibel: utamakan stok cabang pengguna, lalu yang muat
+    di sisa budget & mendekati target. Kalau tidak ada yang muat, tetap pilih yang termurah
+    dari pool itu (lebih mahal dari budget tapi tetap kompatibel) — daripada mengorbankan
+    kompatibilitas."""
     if not pool: return None
+    pool = _prefer_branch(pool, user_branch)
     within_remaining = [c for c in pool if float(c["h1"])<=remaining]
     search_in = within_remaining if within_remaining else pool
     within_target = [c for c in search_in if float(c["h1"])<=target]
     return max(within_target, key=lambda c: float(c["h1"])) if within_target else min(search_in, key=lambda c: float(c["h1"]))
 
-def _select_cpu_with_mb(components, target, remaining, brand=None):
+def _select_cpu_with_mb(components, target, remaining, brand=None, user_branch=None):
     """Pilih CPU yang DIJAMIN punya motherboard kompatibel tersedia di stok (cek ketersediaan
     kompatibilitas dulu, baru budget). Prioritas harga memakai jatah alokasi kategori (target),
     BUKAN seluruh sisa budget — supaya CPU tidak 'menyedot' porsi komponen lain."""
@@ -227,6 +230,7 @@ def _select_cpu_with_mb(components, target, remaining, brand=None):
     if brand:
         bm = [c for c in avail if brand.lower() in _n(c.get("nama_barang",""))]
         if bm: avail = bm
+    avail = _prefer_branch(avail, user_branch)
     within_target = sorted([c for c in avail if float(c.get("h1",0))<=target], key=lambda c: -float(c["h1"]))
     rest = sorted([c for c in avail if float(c.get("h1",0))>target], key=lambda c: float(c["h1"]))
     candidates = within_target + rest
@@ -244,14 +248,14 @@ def _select_cpu_with_mb(components, target, remaining, brand=None):
             fallback = cpu
     return fallback or candidates[0]
 
-def _select_compatible_mb(components, cpu_comp, target, remaining):
+def _select_compatible_mb(components, cpu_comp, target, remaining, user_branch=None):
     cpu_name = cpu_comp.get("nama_barang","") if cpu_comp else ""
     compat, rule = _mb_compatible_pool(components, cpu_name)
     if not compat:
         return None
-    return _pick_budget_first(compat, target, remaining)
+    return _pick_budget_first(compat, target, remaining, user_branch)
 
-def _select_ram(components, cat, target, remaining, cpu_comp):
+def _select_ram(components, cat, target, remaining, cpu_comp, user_branch=None):
     avail = [c for c in components
              if c.get("kategori","").upper()==cat.upper()
              and c.get("is_available",True)
@@ -272,9 +276,25 @@ def _select_ram(components, cat, target, remaining, cpu_comp):
             # pasangkan tipe yang salah — biarkan kosong (akan tercatat sebagai warning jujur).
             avail = filtered if filtered else []
     if not avail: return None
-    return _pick_budget_first(avail, target, remaining)
+    return _pick_budget_first(avail, target, remaining, user_branch)
 
-def build_pc(components, build_type, budget, preferred_brand=None):
+def _prefer_branch(items, user_branch):
+    """Utamakan item yang ready-stock di cabang pengguna kalau ada; kalau tidak ada
+    satupun yang stok di cabang itu, tetap pakai daftar lengkap (stok cabang lain)."""
+    if not user_branch or not items:
+        return items
+    def _stock_at_branch(c):
+        bs = c.get("branch_stock", {})
+        if isinstance(bs, str):
+            import json
+            try: bs = json.loads(bs) if bs else {}
+            except: bs = {}
+        try: return float(bs.get(user_branch, 0) or 0) > 0
+        except: return False
+    local = [c for c in items if _stock_at_branch(c)]
+    return local if local else items
+
+def build_pc(components, build_type, budget, preferred_brand=None, user_branch=None):
     profile = BUILD_PROFILES.get(build_type)
     if not profile: return None
     alloc = profile["alloc"]
@@ -288,13 +308,13 @@ def build_pc(components, build_type, budget, preferred_brand=None):
         if cat == "GRAPHIC CARD" and not needs_gpu: continue
         target = budget * alloc[cat]
         if cat == "MOTHERBOARD" and cpu_comp:
-            comp = _select_compatible_mb(components, cpu_comp, target, remaining)
+            comp = _select_compatible_mb(components, cpu_comp, target, remaining, user_branch)
         elif cat == "PROCESSOR":
-            comp = _select_cpu_with_mb(components, target, remaining, preferred_brand)
+            comp = _select_cpu_with_mb(components, target, remaining, preferred_brand, user_branch)
         elif cat in ("RAM LONGDIMM","RAM SODIMM"):
-            comp = _select_ram(components, cat, target, remaining, cpu_comp)
+            comp = _select_ram(components, cat, target, remaining, cpu_comp, user_branch)
         else:
-            comp = _select(components, cat, target, remaining)
+            comp = _select(components, cat, target, remaining, brand=None, user_branch=user_branch)
         if comp:
             c = dict(comp)
             c["kategori"]       = cat
@@ -308,6 +328,14 @@ def build_pc(components, build_type, budget, preferred_brand=None):
             warnings.append("Tidak ada Motherboard yang kompatibel dengan " + cpu_comp.get("nama_barang","CPU") + " tersedia di stok")
         else:
             warnings.append("Tidak ada " + PC_CATEGORIES.get(cat,cat) + " tersedia di budget ini")
+
+    # Kalau Casing yang terpilih sudah menyertakan PSU di penamaannya (mis. "Casing X + PSU 500W"),
+    # jangan tambahkan PSU terpisah lagi supaya tidak dobel.
+    casing_sel = selected.get("CASING PC")
+    if casing_sel and "psu" in _n(casing_sel.get("nama_barang","")):
+        if "POWER SUPPLY" in selected:
+            remaining += selected["POWER SUPPLY"].get("selling_price", 0)
+            del selected["POWER SUPPLY"]
 
     if not selected: return None
     comps = list(selected.values())

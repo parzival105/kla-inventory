@@ -917,7 +917,7 @@ def page_pcbuilder():
                         if ram_type!="Semua" and ram_type.lower() not in nama: continue
                         if ram_cap!="Semua" and ram_cap.lower().replace(" ","") not in nama.replace(" ",""): continue
                     filtered_comps.append(c)
-                result = build_pc(filtered_comps, bt, budget, None if brand=="Semua" else brand)
+                result = build_pc(filtered_comps, bt, budget, None if brand=="Semua" else brand, get_user().get("branch"))
 
             if not result:
                 st.error("Tidak dapat membuat build. Coba perbesar budget atau ubah filter RAM.")
