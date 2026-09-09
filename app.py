@@ -1537,7 +1537,9 @@ def _build_excel(build_name, components):
     per kolom karena ini data tabel asli, bukan rekonstruksi dari teks PDF."""
     try:
         import io as _io
+        import json as _json_bs
         import pandas as _pd
+        from modules.config import BRANCH_FULL as _BF
         rows = []
         total = 0
         for i, c in enumerate(components):
@@ -1545,6 +1547,16 @@ def _build_excel(build_name, components):
             harga_satuan = float(c.get("selling_price", c.get("h1", 0)) or 0)
             subtotal = harga_satuan * qty
             total += subtotal
+            bs = c.get("branch_stock", {})
+            if isinstance(bs, str):
+                try: bs = _json_bs.loads(bs) if bs else {}
+                except Exception: bs = {}
+            if bs:
+                ketersediaan = ", ".join(
+                    f"{_BF.get(br,br)}: {q}" for br, q in sorted(bs.items(), key=lambda x: -x[1]) if q
+                ) or "Tidak ada stok"
+            else:
+                ketersediaan = "Tidak ada stok"
             rows.append({
                 "No": i+1,
                 "Kategori": c.get("kategori_label", c.get("kategori","")) or "-",
@@ -1552,8 +1564,9 @@ def _build_excel(build_name, components):
                 "Qty": qty,
                 "Harga Satuan": harga_satuan,
                 "Subtotal": subtotal,
+                "Ketersediaan Cabang": ketersediaan,
             })
-        rows.append({"No":"","Kategori":"","Nama Komponen":"","Qty":"","Harga Satuan":"TOTAL","Subtotal":total})
+        rows.append({"No":"","Kategori":"","Nama Komponen":"","Qty":"","Harga Satuan":"TOTAL","Subtotal":total,"Ketersediaan Cabang":""})
         df = _pd.DataFrame(rows)
         buf = _io.BytesIO()
         with _pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
@@ -1561,7 +1574,7 @@ def _build_excel(build_name, components):
             wb = writer.book; ws = writer.sheets["Build"]
             ws.set_column("A:A", 5); ws.set_column("B:B", 16)
             ws.set_column("C:C", 40); ws.set_column("D:D", 6)
-            ws.set_column("E:F", 16)
+            ws.set_column("E:F", 16); ws.set_column("G:G", 40)
         buf.seek(0)
         return buf.read()
     except Exception:
