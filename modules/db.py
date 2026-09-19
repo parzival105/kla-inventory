@@ -37,6 +37,21 @@ def login(username, password, remember=False):
     except: pass
     return True, token, user
 
+def login_by_role_branch(role, branch, remember=True):
+    """Login tanpa password untuk role Sales/Store Leader — cukup pilih role + cabang.
+    Kalau ada lebih dari satu akun aktif untuk role+cabang itu, dianggap 'akun bersama'
+    dan yang paling lama dibuat (id terkecil) yang dipakai."""
+    rows=_get("users",{"role":f"eq.{role}","branch":f"eq.{branch}","is_active":"is.true",
+                        "select":"*","order":"id.asc","limit":"1"})
+    if not rows: return False, None
+    user=rows[0]
+    token=secrets.token_urlsafe(32)
+    hours = 24*30 if remember else 8
+    _post("sessions",{"token":token,"user_id":user["id"],"expires_at":(datetime.utcnow()+timedelta(hours=hours)).isoformat()+"Z"})
+    try: _patch("users",{"id":user["id"]},{"last_login":datetime.utcnow().isoformat()+"Z"})
+    except: pass
+    return True, token, user
+
 def validate_token(token):
     if not token: return None
     from datetime import datetime

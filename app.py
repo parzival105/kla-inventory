@@ -153,35 +153,67 @@ def page_login():
 </div>""", unsafe_allow_html=True)
     _,col,_=st.columns([1,1.1,1])
     with col:
-        with st.form("login"):
-            st.subheader("Masuk ke Akun Anda")
-            username=st.text_input("Username")
-            password=st.text_input("Password",type="password")
-            remember=st.checkbox("🔒 Ingat saya di perangkat ini (tetap login 30 hari)",value=True)
-            if st.form_submit_button("Masuk →",use_container_width=True,type="primary"):
-                if not username or not password:
-                    st.error("Lengkapi username dan password")
+        st.subheader("Masuk ke Akun Anda")
+        login_mode = st.radio("Masuk sebagai", ["Store Leader","Sales","Admin"], horizontal=True, key="login_mode")
+
+        if login_mode == "Sales":
+            from modules.config import ALL_BRANCHES, BRANCH_FULL
+            branch_sel = st.selectbox("Cabang", ALL_BRANCHES, format_func=lambda c: f"{c} — {BRANCH_FULL.get(c,c)}", key="login_branch")
+            remember = st.checkbox("🔒 Ingat saya di perangkat ini (tetap login 30 hari)", value=True, key="login_remember_rb")
+            if st.button("Masuk →", use_container_width=True, type="primary", key="login_btn_rb"):
+                role_key = "sales"
+                try:
+                    from modules.db import login_by_role_branch
+                    login_result = login_by_role_branch(role_key, branch_sel, remember=remember)
+                    if len(login_result)==3: ok,token,user=login_result
+                    else: ok,user=login_result; token=None
+                except Exception as e:
+                    ok=False; st.error(f"Error: {e}")
                 else:
-                    try:
-                        from modules.db import login
-                        login_result=login(username,password,remember=remember)
-                        if len(login_result)==3: ok,token,user=login_result
-                        else: ok,user=login_result; token=None
-                        if ok:
-                            st.session_state.user=user
-                            if token:
-                                st.session_state._token=token
-                                save_session_cookie(token,remember)
-                            try:
-                                from modules.storage import load_analysis,load_components
-                                an=load_analysis()
-                                if an: st.session_state.analysis=an
-                                comps=load_components()
-                                if comps: st.session_state.components=comps
-                            except: pass
-                            st.rerun()
-                        else: st.error("Username atau password salah")
-                    except Exception as e: st.error(f"Error: {e}")
+                    if ok:
+                        st.session_state.user=user
+                        if token:
+                            st.session_state._token=token
+                            save_session_cookie(token,remember)
+                        try:
+                            from modules.storage import load_analysis,load_components
+                            an=load_analysis()
+                            if an: st.session_state.analysis=an
+                            comps=load_components()
+                            if comps: st.session_state.components=comps
+                        except: pass
+                        st.rerun()
+                    else:
+                        st.error(f"Belum ada akun {login_mode} aktif untuk cabang ini. Hubungi Super Admin.")
+        else:
+            with st.form("login"):
+                username=st.text_input("Username")
+                password=st.text_input("Password",type="password")
+                remember=st.checkbox("🔒 Ingat saya di perangkat ini (tetap login 30 hari)",value=True)
+                if st.form_submit_button("Masuk →",use_container_width=True,type="primary"):
+                    if not username or not password:
+                        st.error("Lengkapi username dan password")
+                    else:
+                        try:
+                            from modules.db import login
+                            login_result=login(username,password,remember=remember)
+                            if len(login_result)==3: ok,token,user=login_result
+                            else: ok,user=login_result; token=None
+                            if ok:
+                                st.session_state.user=user
+                                if token:
+                                    st.session_state._token=token
+                                    save_session_cookie(token,remember)
+                                try:
+                                    from modules.storage import load_analysis,load_components
+                                    an=load_analysis()
+                                    if an: st.session_state.analysis=an
+                                    comps=load_components()
+                                    if comps: st.session_state.components=comps
+                                except: pass
+                                st.rerun()
+                            else: st.error("Username atau password salah")
+                        except Exception as e: st.error(f"Error: {e}")
         st.caption("Lupa password? Hubungi Super Admin")
 
 # ══════════════════════════════════════════════════════════════════════════════
