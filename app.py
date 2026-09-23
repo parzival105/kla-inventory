@@ -154,7 +154,23 @@ def page_login():
     _,col,_=st.columns([1,1.1,1])
     with col:
         st.subheader("Masuk ke Akun Anda")
-        login_mode = st.radio("Masuk sebagai", ["Store Leader","Sales","Admin"], horizontal=True, key="login_mode")
+        if "login_mode" not in st.session_state:
+            st.session_state.login_mode = "Sales"
+
+        @st.dialog("Pilih Role Login")
+        def _pick_role_dialog():
+            st.caption("Masuk sebagai:")
+            if st.button("🏬 Store Leader", use_container_width=True, key="rd_sl"):
+                st.session_state.login_mode = "Store Leader"; st.rerun()
+            if st.button("🧑‍💼 Sales", use_container_width=True, key="rd_sales"):
+                st.session_state.login_mode = "Sales"; st.rerun()
+            if st.button("🛡️ Admin", use_container_width=True, key="rd_admin"):
+                st.session_state.login_mode = "Admin"; st.rerun()
+
+        role_icon = {"Store Leader":"🏬","Sales":"🧑‍💼","Admin":"🛡️"}
+        if st.button(f"{role_icon.get(st.session_state.login_mode,'')} Masuk sebagai: {st.session_state.login_mode}  ✎", use_container_width=True, key="open_role_picker"):
+            _pick_role_dialog()
+        login_mode = st.session_state.login_mode
 
         if login_mode == "Sales":
             from modules.config import ALL_BRANCHES, BRANCH_FULL
