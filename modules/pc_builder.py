@@ -294,12 +294,21 @@ def _prefer_branch(items, user_branch):
     local = [c for c in items if _stock_at_branch(c)]
     return local if local else items
 
-def build_pc(components, build_type, budget, preferred_brand=None, user_branch=None):
+def build_pc(components, build_type, budget, preferred_brand=None, user_branch=None, gpu_override=None):
+    """gpu_override: None = ikut profil tipe build (default), True = paksa pakai GPU,
+    False = paksa tanpa GPU — berlaku untuk tipe build apapun."""
     profile = BUILD_PROFILES.get(build_type)
     if not profile: return None
-    alloc = profile["alloc"]
-    prio  = BUILD_PRIORITY.get(build_type, list(alloc.keys()))
-    needs_gpu = profile["needs_gpu"]
+    alloc = dict(profile["alloc"])
+    prio  = list(BUILD_PRIORITY.get(build_type, list(alloc.keys())))
+    needs_gpu = profile["needs_gpu"] if gpu_override is None else gpu_override
+    if needs_gpu and "GRAPHIC CARD" not in alloc:
+        # Tipe build ini biasanya tidak pakai GPU — user memaksa pakai, alokasikan porsi budget untuknya.
+        alloc["GRAPHIC CARD"] = 0.20
+        if "PROCESSOR" in prio:
+            prio.insert(prio.index("PROCESSOR")+1, "GRAPHIC CARD")
+        else:
+            prio.append("GRAPHIC CARD")
     selected = {}; remaining = budget; warnings = []
     cpu_comp = None
 

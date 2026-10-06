@@ -945,6 +945,7 @@ def page_pcbuilder():
             # RAM Options
             ram_type=st.selectbox("Tipe RAM",["Semua","DDR3","DDR4","DDR5"],key="ag_ram_type")
             ram_cap=st.selectbox("Kapasitas RAM",["Semua","4GB","8GB","16GB","32GB"],key="ag_ram_cap")
+            gpu_filter=st.selectbox("GPU",["Otomatis (sesuai tipe build)","Dengan GPU","Tanpa GPU"],key="ag_gpu_filter")
 
         st.divider()
         c_extra1, c_extra2 = st.columns(2)
@@ -965,7 +966,8 @@ def page_pcbuilder():
                         if ram_type!="Semua" and ram_type.lower() not in nama: continue
                         if ram_cap!="Semua" and ram_cap.lower().replace(" ","") not in nama.replace(" ",""): continue
                     filtered_comps.append(c)
-                result = build_pc(filtered_comps, bt, budget, None if brand=="Semua" else brand, get_user().get("branch"))
+                gpu_override = {"Dengan GPU":True,"Tanpa GPU":False}.get(gpu_filter)
+                result = build_pc(filtered_comps, bt, budget, None if brand=="Semua" else brand, get_user().get("branch"), gpu_override)
 
             if not result:
                 st.error("Tidak dapat membuat build. Coba perbesar budget atau ubah filter RAM.")
