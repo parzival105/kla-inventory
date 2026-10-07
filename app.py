@@ -946,14 +946,9 @@ def page_pcbuilder():
             ram_type=st.selectbox("Tipe RAM",["Semua","DDR3","DDR4","DDR5"],key="ag_ram_type")
             ram_cap=st.selectbox("Kapasitas RAM",["Semua","4GB","8GB","16GB","32GB"],key="ag_ram_cap")
             gpu_filter=st.selectbox("GPU",["Otomatis (sesuai tipe build)","Dengan GPU","Tanpa GPU"],key="ag_gpu_filter")
-
-        st.divider()
-        c_extra1, c_extra2 = st.columns(2)
-        with c_extra1:
-            want_monitor = st.radio("🖥️ Monitor", ["Tidak","Ya"], horizontal=True, key="ag_want_monitor") == "Ya"
-        with c_extra2:
-            want_peripheral = st.radio("⌨️🖱️ Keyboard & Mouse", ["Tidak","Ya"], horizontal=True, key="ag_want_peripheral") == "Ya"
-        st.caption("Kalau dipilih \"Ya\", harga monitor/peripheral ditambahkan terpisah di luar budget PC di atas — tidak mengurangi budget komponen inti.")
+            want_monitor = st.selectbox("🖥️ Monitor",["Tanpa Monitor","Dengan Monitor"],key="ag_want_monitor") == "Dengan Monitor"
+            want_peripheral = st.selectbox("⌨️🖱️ Keyboard & Mouse",["Tanpa Keyboard & Mouse","Dengan Keyboard & Mouse"],key="ag_want_peripheral") == "Dengan Keyboard & Mouse"
+        st.caption("Monitor/Keyboard/Mouse yang dipilih \"Dengan\" harganya ditambahkan terpisah di luar budget PC di atas — tidak mengurangi budget komponen inti.")
 
         if st.button("Generate Rekomendasi Build",type="primary",use_container_width=True,key="ag_btn"):
             with st.spinner("Memilih komponen terbaik..."):
